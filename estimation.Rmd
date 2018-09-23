@@ -1,0 +1,185 @@
+---
+title: "Grassi, Hillebrand, Ventosa-Santaulària (2013):  The Statistical Relation of Sea-Level and Temperature Revisited"
+author: "Eric Hillebrand"
+date: "9/17/2018"
+output: html_document
+---
+
+# The Motivation
+
+The starting point of our [paper](https://www.sciencedirect.com/science/article/pii/S0377026513000420) was the comment by [Schmith, Johansen, and Thejll](http://science.sciencemag.org/content/317/5846/1866.3) on the paper of [Rahmstorf (2007)](http://science.sciencemag.org/content/315/5810/368).  The criticism focuses on a single element in the original paper,  namely the p-value of 1.6e-8 reported on page 369, first column, middle.
+
+After extracting singular spectrum components from the temperature and sea-level time series, taking differences of the sea-level component, and binning into 5-year blocks, the author arrived at 24 observations on both sides of the regression.  Since these are long-term components of global temperature and changes in sea-level, both are trending upward.  A p-value of order of magnitude 1.6e-8 on 24 observations with trending data strongly suggests a spurious regression.
+
+Spurious regressions are sometimes also called nonsense regressions, and this is misleading.  If the underlying model of the causal connection is correct, here the semi-empirical physical model that connects changes in sea-level to temperatures, it is possible that there is nothing wrong with the estimated coefficient.   
+
+If dependent and independent variable in a simple regression are both integrated of order one, and the modeled connection between the two is correct, the regression coefficient is a superconsistent estimate of the population parameter, that is, it converges to its population value much faster, at rate $T$ instead of $\sqrt{T}$. The estimate of the standard error of the regression coefficient, however, is biased downwards, mainly due to the fact that the variances of regressand and regressor scale with $T$ instead of being constants, the very same fact that gives superconsistency.  Thus, the parameter estimate appears more highly statistically significant than it really is.  For a textbook treatment of spurious regression, see, for example, [Hamilton (1994)](https://press.princeton.edu/titles/5386.html), p. 557.  Thus, we did not doubt the statistical validity of the estimate of 3.4 mm sea-level rise per year per degree C temperature increase that is reported in the article, but we did doubt the p-value.
+
+Since the 1990s, the standard econometric approach to deal with spurious regression is cointegration, and this avenue is pursued for the problem at hand in 
+[Schmith, Johansen, and Thejll (2012)](https://journals.ametsoc.org/doi/abs/10.1175/JCLI-D-11-00598.1).  They also provide a short tutorial on cointegration in their article and carefully develop many interpretations of cointegration in the context of temperature and sea-level.  
+
+# Finding the model
+
+The relative disadvantage of cointegration in the current application is that it does not retain the flavor of Rahmstorf's (2007) analysis, in particular the extraction of two unobserved trend components from the two time series and the relation of these components onto each other.  This motivated us to look for an alternative avenue that would feature unobserved trend components and still allow for statistical inference, naturally pointing towards state-space models.
+
+The first thing we noticed was that the shape of the singular spectrum components extracted in [Rahmstorf (2007)](http://science.sciencemag.org/content/315/5810/368) for sea-level and temperatures was strongly reminiscent of trend components obtained from the local trend model, as described, for example, in [Durbin and Koopman (2012)](https://global.oup.com/academic/product/time-series-analysis-by-state-space-methods-9780199641178?cc=dk&lang=en&), or in [Petris (2010)](https://www.jstatsoft.org/article/view/v036i12). (The singular spectrum components are not plotted in Rahmstorf (2007), but the Matlab code for the article was available on the Science web site at the time, and we could reproduce them.  They are shown in Figure 1 of our [paper](https://www.sciencedirect.com/science/article/pii/S0377026513000420).)  
+
+The local trend model is given by
+$$
+y_t = [1\, 0] \left[\begin{array}{c} \mu_t \\ \beta_t \end{array}\right] + \varepsilon_t, \qquad \varepsilon_t \sim \mathsf{NID}(0,\, \sigma_1^2)\\
+\left[\begin{array}{c} \mu_t \\ \beta_t \end{array}\right] = \left[\begin{array}{cc} 1 & 1 \\ 0 & 1 \end{array}\right] \left[\begin{array}{c} \mu_{t-1} \\ \beta_{t-1} \end{array}\right]
++ \left[\begin{array}{c} \eta_{1,t} \\ \eta_{2,t}\end{array}\right], \qquad \left[\begin{array}{c} \eta_{1,t} \\ \eta_{2,t}\end{array}\right] \sim \mathsf{NID}(0,\left[\begin{array}{cc} \sigma_2^2 & 0 \\ 0 & \sigma_3^2 \end{array}\right]),
+$$
+where $y_t$ is the observed time series, here either sea-level or temperature, $\mu_t$ is the trend component, and $\beta_t$ is the slope of the trend component, which is allowed to vary with time, such that the resulting extracted trend from the data can take "non-linear" shape, that is, not just be a straight line.
+
+In particular, if we set $\sigma_2^2=0$, that is, if we consider a non-random trend function with time-varying slope, the model is equivalent to the [Hodrick-Prescott (1997)](https://www.jstor.org/stable/i352676) filter, see also [Gomez (1999)](https://www.jstor.org/stable/i260370).  The following bits of code estimate this model both for the temperature and sea-level time series as used in Rahmstorf (2007) and plot the data series together with the extracted, smoothed component $\mu_t$. Note that the R package **dlm** is used.
+
+
+```{r}
+Data=read.csv("https://raw.githubusercontent.com/chisos9/data_public/master/data_sealevel.csv")
+T=Data$GISTEMP/100
+S=Data$SL/10
+library('dlm')
+
+# Temperature
+loctrend <- function(p) { dlm(FF=matrix(c(1,0),nrow=1),GG=matrix(c(1,0,1,1),ncol=2),V=exp(p[1]),W=diag(c(0,exp(p[2]))),m0=c(0,0),C0=diag(c(1e7,1e7))) }
+Mod01 <- dlmMLE(T,parm=c(0,0),build=loctrend)
+T.fit <- loctrend(Mod01$par)
+Tfilt=dlmFilter(T,mod=T.fit)
+Tsmooth=dlmSmooth(Tfilt,mod=T.fit)
+plot(Data$Year,T,type="l",ylab="Degree C",xlab="Year",lwd="3")
+lines(Data$Year,Tsmooth$s[2:123,1],type="l",col="red",lwd="3")
+title("Local trend model for temperature")
+
+# Sealevel
+Mod02 <- dlmMLE(S,parm=c(0,0),build=loctrend)
+S.fit <- loctrend(Mod02$par)
+Sfilt=dlmFilter(S,mod=S.fit)
+Ssmooth=dlmSmooth(Sfilt)
+plot(Data$Year,S,type="l",ylab="cm",xlab="Year",lwd="3")
+lines(Data$Year,Ssmooth$s[2:123,1],type="l",col="red",lwd="3")
+title("Local trend model for sea-level")
+```
+
+The finding that the local trend model with deterministic trend function essentially filters out the same components as the singular spectrum analysis conducted in Rahmstorf (2007) enabled us to write our [paper](https://www.sciencedirect.com/science/article/pii/S0377026513000420).  We could now specify a larger bivariate model for both time series, sea-level and temperature, that essentially consisted of a local trend model for each series but then featured a linear coefficient that connected the trend component in the sea-level with the trend component in the temperature.  This combined model takes the form
+
+$$
+\left[\begin{array}{c} H_t \\ T_t  \end{array}\right] = \left[\begin{array}{c} \mu^H_t \\ \mu^T_t  \end{array}\right] + \left[\begin{array}{c} \varepsilon^H_t \\ \varepsilon^T_t  \end{array}\right] \\
+\left[\begin{array}{c} \mu^H_t \\ \mu^T_t \\ \beta^H_t \\ \beta^T_t  \end{array}\right]
+= \left[\begin{array}{cccc} 1 & c & 1 & 1 \\ 0 & 1 & 0 & 1 \\ 0 & 0 & 1 & 0 \\ 0 & 0 & 0 & 1 \end{array}\right] \left[\begin{array}{c} \mu^H_{t-1} \\ \mu^T_{t-1} \\ \beta^H_{t-1} \\ \beta^T_{t-1}  \end{array}\right] + \left[\begin{array}{c} 0 \\ 0 \\ \eta^H_t \\ \eta^T_t  \end{array}\right],
+$$
+where $H_t$ is the sea-level and $T_t$ temperature.  The resulting equation for $\mu^H_t$, the trend component of the sea-level, is, 
+$$
+\mu^H_t - \mu^H_{t-1} = c \mu_{t-1}^T + \beta_{t-1}^H,
+$$
+which compares directly with Equation (1) in Rahmstorf (2007), a regression of changes in the extracted sea-level component onto levels of the temperature component.  New is an error term, $\beta_{t-1}^H$, and this error term is a random walk, invalidating standard linear regression methods, but still statistically tractable in a state-space framework.  The coefficient of interest is, of course, $c$, which captures the linear influence of the long-term trend in temperatures onto changes in the long-term trend of the sea-level.  
+
+
+```{r}
+# Combined model
+
+mTS=ts(cbind(S,T),start=1880)
+obj01 <- function(p) { dlm(FF=matrix(c(1,0,0,1,0,0,0,0),nrow=2,ncol=4),GG=matrix(c(1,0,0,0,p[1],1,0,0,1,0,1,0,0,1,0,1),nrow=4,ncol=4),V=diag(exp(p[2:3])),W=matrix(c(0,0,0,0,0,0,0,0,0,0,exp(p[4]),0,0,0,0,exp(p[5])),nrow=4,ncol=4),m0=c(0,0,0,0),C0=diag(c(1e7,1e7,1e7,1e7))) }
+Mod03 <- dlmMLE(mTS,parm=c(1,0,0,0,0),build=obj01,hessian=TRUE)
+TS.fit <- obj01(Mod03$par)
+TSfilt=dlmFilter(mTS,mod=TS.fit)
+TSsmooth=dlmSmooth(TSfilt)
+par(mfrow=c(1,2))
+plot(Data$Year,S,type="l",ylab="cm",xlab="Year",lwd="3")
+lines(Data$Year,TSsmooth$s[2:123,1],type="l",col="red",lwd="3")
+title("Sea-level")
+plot(Data$Year,T,type="l",ylab="degree C",xlab="Year",lwd="3")
+lines(Data$Year,TSsmooth$s[2:123,2],type="l",col="red",lwd="3")
+title("Temperature")
+
+```
+
+This bit of R code estimates the combined model and plots the graphs with smoothed extracted components $\mu^H_t$ and $\mu^T_t$.  The estimate of the coefficient of interest is $\hat{c} =$ `r Mod03$par[1]` here in R (0.4565 reported in the paper), that is, 4.6 mm sea-level rise per year per degree C increase in temperature.  This is quite a bit higher than the estimate of 3.4 mm/year/degree C reported in Rahmstorf (2007).  The paper discusses the in-sample fit and residual diagnostics for the model, and it presents graphs of the estimated  $\beta_{t-1}^H$ error compared to a simple linear regression fit.
+
+
+# Conducting inference
+
+It thus remains to find the proper p-value for the estimated coefficient $\hat{c} =$ `r Mod03$par[1]` of interest.  We calculate the p-value numerically by simulating the combined model under the null hypothesis of $c=0$, holding all other estimated parameters fixed at their estimated values.  Then we estimate the model on the simulated data allowing for $c\neq 0$ and simply count the numbers of times the coefficient is estimated above the data estimate of $\hat{c} =$ `r Mod03$par[1]` divided by the number of simulations. 
+
+```{r}
+estimate1=FALSE
+if (estimate1){
+MC=10000
+N=222
+vc=matrix(0,MC,1)
+y=matrix(0,2,N)
+x=matrix(0,4,N)
+Phi=matrix(c(1,0,0,0,0,1,0,0,1,0,1,0,0,1,0,1),4,4)
+
+for (j in 1:MC) {
+ #print(j)
+ eps1=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[2])))
+ eps2=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[3])))
+ Eps=as.matrix(rbind(eps1,eps2))
+ eta1=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[4])))
+ eta2=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[5])))
+ Eta=as.matrix(rbind(eta1,eta2))
+ x[1,1]=TSsmooth$s[2,1]
+ x[2,1]=TSsmooth$s[2,2]
+ x[3,1]=TSsmooth$s[2,3]+Eta[1,1]
+ x[4,1]=TSsmooth$s[2,4]+Eta[2,1]
+ y[,1]=x[1:2,1]+Eps[,1]
+ for (t in 2:N){
+   x[,t]=Phi%*%x[,t-1]+matrix(c(0,0,Eta[,t]),4,1)
+   y[,t]=x[1:2,t]+Eps[,t]
+ }
+ tryCatch({Mod00 <- dlmMLE(t(y[,101:222]),parm=c(1,0,0,0,0),build=obj01,hessian=TRUE)
+ vc[j]=Mod00$par[1]
+ }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+}
+}
+```
+
+The chunk of R code above runs for about 3.5 hours on my MacBook Air, which is why I switched it off.  If you'd like to run it, simply change "estimate1" to TRUE.  Of course, you can also change the number MC of replications, to either get a coarser or more precise estimate.
+
+The estimated p-value is `r if(estimate1) sum(vc>Mod03$par[1])/MC else 0.048`.  This is a bit different from the p-value of 0.0756 reported in the paper, which we estimated in exactly the same fashion in MATLAB.  The point is that the order of magnitude of the p-value that one needs to talk about in this statistical problem is $10^{-2}$ and not $10^{-8}$.
+
+The combined model features an integrated random walk as long-term trend for temperatures: $\mu^T_t = \mu^T_{t-1} + \beta^T_{t-1},\; \beta^T_t = \beta^T_{t-1} + \eta^T_{t},\; \eta^T_t\sim\mathsf{N}(0,\sigma_{\eta^T}^2)$.  This means that the model does not preclude temperature paths that are downward trending, and in simulating the model under the null, paths of this nature occur with a certain probability and figure in the calculation of the p-value.  One may find this implausible.  It is relatively straightforward to check if such a path occurred, though we did not do it in the paper. I do this in the following chunk of R code and simply discard simulations for which the long-term temperature component after 122 observations came out below the initial value.  (Note that there is a burn-in period of 100 observations at the beginning of each simulation that is not used.) 
+
+```{r}
+estimate2=FALSE
+if (estimate2){
+MCC=10000
+N=222
+vcc=matrix(0,MCC,1)
+y=matrix(0,2,N)
+x=matrix(0,4,N)
+Phi=matrix(c(1,0,0,0,0,1,0,0,1,0,1,0,0,1,0,1),4,4)
+j=0
+while (j<MCC) {
+  #print(j)
+  eps1=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[2])))
+  eps2=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[3])))
+  Eps=as.matrix(rbind(eps1,eps2))
+  eta1=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[4])))
+  eta2=rnorm(N,mean=0,sd=sqrt(exp(Mod03$par[5])))
+  Eta=as.matrix(rbind(eta1,eta2))
+  x[1,1]=TSsmooth$s[2,1]
+  x[2,1]=TSsmooth$s[2,2]
+  x[3,1]=TSsmooth$s[2,3]+Eta[1,1]
+  x[4,1]=TSsmooth$s[2,4]+Eta[2,1]
+  y[,1]=x[1:2,1]+Eps[,1]
+  
+  for (t in 2:N){
+    x[,t]=Phi%*%x[,t-1]+matrix(c(0,0,Eta[,t]),4,1)
+    y[,t]=x[1:2,t]+Eps[,t]
+  }
+  if (x[2,222]>x[2,101]){
+    tryCatch({Mod00 <- dlmMLE(t(y[,101:222]),parm=c(1,0,0,0,0),build=obj01,hessian=TRUE)
+    vcc[j]=Mod00$par[1]
+    }, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
+    j=j+1
+  }
+}
+}
+```
+The estimated p-value from this exercise is `r if(estimate1) sum(vcc>Mod03$par[1])/MCC else 0.052`.  Again, the code is switched off and can be activated by setting "estimate2" to TRUE.
+
+# Conclusion
+
+The p-value in relating 122 years of data on global sea-level and global temperatures is of the order of magnitude $10^{-2}$.  I hope it helps to also have R code available for this model.
