@@ -1,0 +1,699 @@
+---
+title: "Hillebrand and Proietti (2017, Journal of Climate)"
+author: "Eric Hillebrand"
+#date: "11/18/2020"
+date: "06/29/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## The central insight 
+
+The basic idea of the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml) can be explained in one graph, so let's start with that one (Figure 3 in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml)).  On the y-axis we have temperature.  On the x-axis, there are ticks and labels for the twelve months of the year.  Zooming into the x-axis, we get the picture in the second figure called "Figure 3: x-axis zoom".  Centered around each month label, there is a time interval from 1754 to 2020. 
+
+
+<!-- ![Figure 1](seasonals.jpg){width=50%} -->
+
+```{r, Figure 3, fig.show="hold", out.width="50%", echo=FALSE}
+n<-267 # full period in years
+N<-26000 # long cycle
+cT<-12*n # n full monthly cycles
+vt<-(1:cT)
+#A<-1
+m<-9.23
+A<-6.4
+#A<-6.9-.85/cT*vt # amplitude in degree C
+#A<-6.8-5/cT*vt # amplitude in degree C
+x<-matrix(0,cT,1)
+f0<-1/12 # fundamental frequency
+f1<-1/(12*N)  # long frequency
+vt=(1:cT)
+x<-m+A*cos(pi+2*pi*f0*vt) # "calendar" process without shift
+y<-m+A*cos(pi+2*pi*f0*vt-2*pi*f1*vt) # "season" process with shift
+
+MS<-matrix(0,n,12)
+mA<-matrix(0,n,12)
+
+# month series
+for (j in 1:n){
+  for (s in 1:12){
+    MS[j,s]<-y[s+12*(j-1)] # monthseries
+    if (length(A)>1){
+      mA[j,s]=A[s+12*(j-1)] # time-varying amplitude
+    }
+  }
+}
+
+
+Intcpts<-cos(pi+2*pi*(f0-f1)*(1:12))
+dtheta<-24*pi*f1;
+C<-matrix(0,2,12)
+C[1,]<-cos(pi+2*pi*f0*(1:12))
+C[2,]<-sin(pi+2*pi*f0*(1:12))
+D1<-matrix(0,12,n)
+D2<-matrix(0,12,n)
+for (s in 1:12){
+  D1[s,]<-cos(2*pi*f1*(s+12*(0:(n-1))))
+  D2[s,]<-sin(2*pi*f1*(s+12*(0:(n-1))))
+}
+
+E<-matrix(0,n,12)
+for (j in 1:n){
+  E[j,]<-C[1,]*(-D2[,j]*dtheta-.5*dtheta^2*D1[,j])+C[2,]*(D1[,j]*dtheta-.5*dtheta^2*D2[,j])
+}
+
+
+# figure
+ax<-matrix(0,12,1)
+sin1<-matrix(0,12,1)
+sin2<-matrix(0,12,1)
+for (s in 1:12){
+  ax[s]<-(s-1)*n+1
+  sin1[s]<-MS[1,s]
+  sin2[s]<-MS[n,s]
+}
+xmin<-min(ax)
+xmax<-max(ax+n)
+ymin<-min(sin1,sin2)
+ymax<-max(sin1,sin2)
+plot(ax,sin1,type='l',lwd=2,col='black',lty=1,xlim=c(xmin,xmax),ylim=c(ymin,ymax),xlab="Month",ylab="Degree C",xaxt="n",main="Figure 3: Two seasonal temperature curves with different phases",cex.main=1)
+xtick<-seq(1, 12, by=1)
+xtick_loc<-seq(floor(12*n/(2*12)),12*n, by=12*n/12)
+axis(side=1, at=xtick_loc, labels = FALSE)
+text(x=xtick_loc,  par("usr")[3], 
+     labels = xtick, srt = 0, pos = 1, xpd = TRUE)
+lines(ax+n,sin2,lwd=2,col='black',lty=3)
+for (s in 1:12){
+  lines((((s-1)*n+1):(n*s)),MS[,s],col='red',lwd=5)
+  if (length(A)>1){
+    lines((((s-1)*n+1):(n*s)),m+mA[,s]*(Intcpts[s]+cumsum(E[,s])),col='black',lwd=1) # time-varying amplitude
+  } else {
+    lines((((s-1)*n+1):(n*s)),m+A*(Intcpts[s]+cumsum(E[,s])),col='black',lwd=1) # constant amplitude
+  }
+}
+  
+n<-262 # full period in years
+
+# figure
+ax<-matrix(0,12,1)
+for (s in 1:12){
+   ax[s]<-(s-1)*n+1
+}
+xmin<-min(ax[1:2])
+xmax<-max(ax[1:3])
+ymin<--1
+ymax<-1
+ax_fine<-seq(1,ax[3],by=1)
+line_zero<-matrix(0,length(ax_fine),1)
+plot(ax_fine,line_zero,type='l',lwd=2,col='black',lty=1,xlim=c(xmin,xmax),ylim=c(ymin,ymax),xlab="Month",ylab="Degree C",xaxt="n",yaxt="n",main="Figure 3: x-axis zoom",cex.main=1,bty="n")
+segments(ax[2]-n/2, -.2, ax[2]-n/2, .2, lwd=2)
+text(ax[2]-n/2, -.4, 1)
+segments(ax[3]-n/2, -.2, ax[3]-n/2, .2, lwd=2)
+text(ax[3]-n/2, -.4, 2)
+
+for (j in seq(1,n,by=10)){
+  segments(ax_fine[j], -.1, ax_fine[j], .1)
+}
+for (j in seq(1,n,by=50)){
+  segments(ax_fine[j], -.15, ax_fine[j], .15)
+  text(ax_fine[j], -.3, 1753+ax_fine[j],cex=.5)
+}
+for (j in seq(1,n,by=10)){
+  segments(ax_fine[j]+n, -.1, ax_fine[j]+n, .1)
+}
+for (j in seq(1,n,by=50)){
+  segments(ax_fine[j]+n, -.15, ax_fine[j]+n, .15)
+  text(ax_fine[j]+n, .3, 1753+ax_fine[j],cex=.5)
+}
+text(ax[3]+12, 0, "...",cex=1)
+```
+
+The two sinusoidal curves, the one with the solid lines and the one with the dashed lines, are two different seasonal temperature curves.  The low temperatures are in Nov, Dec, Jan, Feb; the high temperatures occur in May, Jun, Jul, so we're looking at a seasonal temperature profile typical for the Northern Hemisphere. 
+
+The two curves illustrate the temperature profiles of the same geographical point on the Northern Hemisphere at two points in time (these are artificial data). The two points are some 267 years apart, say from 1754 to 2020. The thick red lines connect the observations pertaining to a given month from 1754 to 2020. That is, the first red line shows all the January observations from 1754 to 2020, the second all the February observations, and so on.  Thus, one can imagine a whole family of 267 sinusoidal curves, one for each year between 1754 and 2020, of which only the first (solid line) and the last (dashed line) are plotted. 
+
+Comparing the solid and the dashed curves, we notice that the spring temperatures on the solid curve are warmer than on the dashed curve, and that the fall temperatures on the solid curve are colder than on the dashed curve.  The extrema, the summer maximum in June and the winter minimum in December, are unchanged. In other words, between 1754 and 2020, the onset of the seasons has experienced a delay: It gets warm later in the calendar spring and summer, and it gets cold later in the calendar fall and winter.
+
+This climatic change can be described as a rightward shift in the phase of the seasons. The entire temperature profile has moved to the right, and every point on the curve occurs a bit later.  This is also true for the maximum in summer and the minimum in winter.  The temperature trends in the annual month observations, i.e., in all the January observations, all the February observations, and so on, are clearly visible. Note that there is no overall upward trend in this graph: The dashed profile is simply the solid one shifted to the right.
+
+This, then, is **the central insight** of the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml), expressed mathematically in Equation (6), and proven in Appendix B:  There are two equivalent ways to talk about a climatic change such as the one shown in Figure 3.  One can say that the phase has shifted to the right, or one can say just as well that the annual month series (all the January observations, all the February observations, ...) have undergone trends such that the spring temperatures have become colder and the fall temperatures have become warmer.  If you are used to the frequency-domain/time-domain dichotomy in time series analysis, you may think of the first statement as the frequency-domain version and of the second statement as the time-domain version.
+
+
+## The data
+
+What do these annual month series (all the January observations, all the February observations, ...) look like for an actual place on the Northern Hemisphere?  The next graph (Figure 1 in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml)) shows the monthplots for the Central England Temperature (CET) time series 1754--2020 and the De Bilt, Netherlands, time series 1706--2020, two of the longest instrumental temperature records.  The black lines are simple least-squares fits of a constant and a linear trend to each annual month series separately.
+
+```{r, Monthplots, fig.show="hold", out.width="50%", echo=FALSE}
+oldw <- getOption("warn")
+options(warn = -1)
+
+## read in the CET data from web
+#conn <- url("http://www.metoffice.gov.uk/hadobs/hadcet/cetml1659on.dat") # If you'd like the newest data.  No promises for format changes...
+conn <- url("https://raw.githubusercontent.com/chisos9/data_public/master/cetml1659on_nov_2020.txt")
+CET <- read.table(conn, sep = "", skip = 6, header = TRUE,
+                  fill = TRUE, na.string = c(-99.99, -99.9))
+CET<-CET[96:nrow(CET),] # after 1754
+rm(conn)
+
+## store annual mean as separate data frame and remove from data set
+Years <- as.numeric(row.names(CET))
+ann_mean_CET <- data.frame(MeanTemp = CET[, ncol(CET)],
+                     Year = Years)
+CET <- CET[, -ncol(CET)]
+
+## "stack" = stack all columns, transforming row names (years) into factor
+CET <- stack(CET)[,2:1]
+names(CET) <- c("Month","deg C")
+
+## add in Year and nMonth for numeric month and a proper Date class
+CET<- transform(CET, Year = (Year <- rep(Years, times = 12)),
+                 Month = (Month <- rep(1:12, each = length(Years))),
+                 Date = as.Date(paste(Year, Month, "15", sep = "-"),format = "%Y-%m-%d"))
+ 
+## sort into temporal order
+CET <- CET[with(CET, order(Date)), ]
+row.names(CET) <- 1:nrow(CET)
+
+library(tibble)
+CET<-as.tibble(CET)
+
+library(ggplot2)
+
+# month plot
+fig <- ggplot(CET, aes(x=Year,y=deg.C)) + geom_point(size=.1, color="red")
+fig <- fig + facet_grid(cols=vars(Month))
+fig <- fig + theme(axis.ticks.x=element_blank(),axis.text.x=element_blank(),plot.title = element_text(hjust=0.5))
+fig <- fig + stat_smooth(formula = y ~ x, method = "lm", color="black",se=TRUE) 
+fig <- fig + ggtitle("Figure 1: Central England Temperature monthplot")
+suppressWarnings(plot(fig))
+
+## read in the De Bilt data from web
+#conn <- url("https://climexp.knmi.nl/data/ilabrijn.dat") # If you'd like the newest data. No promises for format changes...
+conn <- url("https://raw.githubusercontent.com/chisos9/data_public/master/ilabrijn_nov_2020.txt")
+DeBilt1 <- read.table(conn, sep = "", skip = 15, header = FALSE,
+                  fill = TRUE, na.string = c("-999.9000"))
+DeBilt<-DeBilt1[,-1]
+rownames(DeBilt)<-DeBilt1[,1]
+colnames(DeBilt)<-c("JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC")
+
+rm(conn)
+
+## store annual mean as separate data frame and remove from data set
+Years <- as.numeric(row.names(DeBilt))
+ann_mean_DeBilt <- data.frame(MeanTemp = DeBilt[, ncol(DeBilt)],
+                     Year = Years)
+
+## "stack" = stack all columns, transforming row names (years) into factor
+DeBilt <- stack(DeBilt)[,2:1]
+names(DeBilt) <- c("Month","deg C")
+
+## add in Year and nMonth for numeric month and a proper Date class
+DeBilt<- transform(DeBilt, Year = (Year <- rep(Years, times = 12)),
+                 Month = (Month <- rep(1:12, each = length(Years))),
+                 Date = as.Date(paste(Year, Month, "15", sep = "-"),format = "%Y-%m-%d"))
+ 
+## sort into temporal order
+DeBilt <- DeBilt[with(DeBilt, order(Date)), ]
+row.names(DeBilt) <- 1:nrow(DeBilt)
+
+DeBilt<-as.tibble(DeBilt)
+
+# month plot
+fig <- ggplot(DeBilt, aes(x=Year,y=deg.C)) + geom_point(size=.1, color="red")
+fig <- fig + facet_grid(cols=vars(Month))
+fig <- fig + theme(axis.ticks.x=element_blank(),axis.text.x=element_blank(),plot.title = element_text(hjust=0.5))
+fig <- fig + stat_smooth(formula = y ~ x, method = "lm", color="black",se=TRUE)
+fig <- fig + ggtitle("De Bilt temperature monthplot")
+plot(fig)
+
+```
+
+We note that the linear trends in the monthplots have a different shape than the red lines in the idealized monthplot above. While they are upward trending in the fall as above, meaning that it gets cold later (with the possible exception of September for De Bilt), they are, in contrast to the graph above, upward trending in the spring as well, meaning that it gets warm earlier, not later (with the possible exception of June for CET).  This suggests a general warming trend rather than a mere shift in the timing of the seasons. The central insight also sends a warning light flashing that these seasonal trends might potentially be confused with phase shifts.
+
+We note a few other things: The upward trends are steeper in winter than in the rest of the year.  The variance of the month point clouds around the trend lines is higher in winter than in summer. The two temperature profiles are very similar, owing to the fact that Central England and De Bilt (near Utrecht, Netherlands) are separated by some 350 kilometers, about 180 of which are North Sea, which strongly influences the weather in both locations.
+
+The next figure shows the monthly CET series and the De Bilt series in standard time series format.  In particular in the last part of the record, after about 1950, an upward trend is discernible with the naked eye in both time series.  Clearly, the season is by far the largest source of variation in both series.
+
+```{r, time series plots, fig.show="hold", out.width="50%", echo=FALSE}
+
+# time series plot
+fig_ts<-ggplot(CET, aes(x=Year,y=deg.C)) + geom_line(size=.2, color="blue")
+fig_ts <- fig_ts + ggtitle("Central England Temperature time series")
+plot(fig_ts)
+
+# time series plot
+fig_ts1<-ggplot(DeBilt, aes(x=Year,y=deg.C)) + geom_line(size=.2, color="blue")
+fig_ts1 <- fig_ts1 + ggtitle("De Bilt temperature time series")
+plot(fig_ts1)
+
+options(warn = oldw)
+```
+
+## The model
+
+In [Proietti and Hillebrand (2017)](https://rss.onlinelibrary.wiley.com/doi/full/10.1111/rssa.12229), we have proposed a model for seasonal temperature time series that we can now bring to bear on these two series (and some 14 others in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml)). The model allows for the estimation of the monthly trend lines (intercepts and slopes), called $\mu$ and $\beta$, both vectors with 12 entries, a scalar stochastic global warming trend on which the months load differentially with loadings $\theta$, a vector with 12 entries, and covariance-stationary autoregressive processes that describe the dispersion of the point clouds in each month of the monthplots, with autoregressive coefficients $\phi$ and variances $\nu$, again vectors with 12 entries. Besides explaining the central insight of the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml), the point of this Markdown script is to provide R-code for this model. So, we estimate it on the CET and De Bilt series (this runs a couple minutes, 10 on my machine):
+
+
+
+```{r, include=FALSE}
+require(MASS)
+
+################################################################################
+############################## Auxiliary Functions #############################
+################################################################################
+
+####################################
+# Define state space model
+####################################
+
+specifyStateSpaceModel = function(hyperParameters, data){
+  seasons <- 12
+  splineKnots <- c(0, 1, 4, 7, 10, 12)
+  k <- length(splineKnots) - 1
+  splineWeights <- matrix(0, nrow = seasons, ncol = k)
+  nStates <- 2 
+  for(i in 1:seasons){
+    weights <- periodicSpline(splineKnots, i)
+    splineWeights[i, ] <- weights
+  }
+  eta<-1
+  stateSpaceModel <- list(seasons = seasons, splineWeights = splineWeights, data = data, nObs = length(data),
+                          eta = eta, seasonalIntercepts = splineWeights %*% hyperParameters[1:k],
+                          drifts = splineWeights %*% hyperParameters[(k+1): (2*k)],
+                          loadings = splineWeights %*% exp(hyperParameters[(2 * k+1) : (3*k)]), #mapping loadings
+                          arCoefs = -1 + 2/(1 + exp(- splineWeights %*% hyperParameters[(3*k+1):(4*k)])), #mapping arCoefs
+                          sigmaEps = exp(splineWeights %*% hyperParameters[(4 * k + 1):(5*k)]), #mapping sigmaEps
+                          Z = c(0,1), mHH = diag(c(eta,1)), A = numeric(nStates), nStates = nStates,
+                          mH=matrix(0,5*k,5*k)) # standard errors
+  stateSpaceModel$P <- diag(c(0, stateSpaceModel$sigmaEps[12]/(1 - stateSpaceModel$arCoefs[12]^2)))
+  return(stateSpaceModel)
+}
+
+####################################
+# Estimate state space model
+####################################
+
+estimateModel <- function(data,  hyperParameters){
+  #switch between Newton-Raphson ("BFGS") and simplex ("Nelder-Mead")
+  #optimizer <- optim(hyperParameters, stateSpaceLogLike, data = data, control = list(trace = 4, maxit = 10000, reltol = 1e-9), method="Nelder-Mead", hessian=TRUE)
+  optimizer <- optim(hyperParameters, stateSpaceLogLike, data = data, control = list(trace = 4, maxit = 10000, reltol = 1e-9), method="BFGS", hessian=TRUE)
+  parameters <- optimizer$par
+  stateSpaceModel <- specifyStateSpaceModel(parameters, data)
+  stateSpaceModel <- CETKalmanFilter(stateSpaceModel)
+  stateSpaceModel <- stateSmoother(stateSpaceModel)
+  stateSpaceModel$mu <- mean(stateSpaceModel$seasonalIntercepts)+mean(stateSpaceModel$drifts)*(1:stateSpaceModel$nObs)+mean(stateSpaceModel$loadings)*stateSpaceModel$smoothedA[1,]
+  stateSpaceModel$parameters <- parameters
+  stateSpaceModel$mH <- optimizer$hessian
+  return(stateSpaceModel)
+}
+
+########################################
+# Evaluate likelihood objective function 
+########################################
+
+stateSpaceLogLike <- function(hyperParameters, data){
+  stateSpaceModel <- specifyStateSpaceModel(hyperParameters, data)
+  seasons <- stateSpaceModel$seasons
+  permutationMatrix <- cbind(c(rep(0,seasons-1), 1), diag(seasons)[,-seasons])
+  selectionVector <- c(1, numeric(seasons-1))
+  intercepts <- stateSpaceModel$seasonalIntercepts
+  drifts <- stateSpaceModel$drifts
+  loadings <- stateSpaceModel$loadings
+  arCoefs <- stateSpaceModel$arCoefs
+  sigmaEps <- stateSpaceModel$sigmaEps
+  P <- stateSpaceModel$P
+  A <- stateSpaceModel$A
+  GG <- 0
+  llk <- 0
+  sumOfSquares <- 0
+  for (t in 1:length(data)) {
+    Z <- c(t(selectionVector) %*% loadings, 1)
+    X <- c(selectionVector, t * selectionVector)
+    mT <- diag(c(1, t(selectionVector) %*% arCoefs))
+    HH <- diag(c(1, t(selectionVector) %*% sigmaEps))
+    if(!is.na(data[t])){ #Observation
+      v <- data[t] - Z %*% A - X %*% c(intercepts, drifts)
+      f <- Z %*% P %*% Z  + GG
+      K <- mT %*% P %*% Z  %*% (1/f) 
+      A <- mT %*% A + K %*% v
+      P <- mT %*% P %*% mT + HH - (K %*% t(K)) * drop(f)
+      llk <- llk + log(f)
+      sumOfSquares <- sumOfSquares + v^2/f
+    } else { #Missing observation
+      A <- mT %*% A
+      P <- mT %*% P %*% t(mT) + HH
+    }
+    selectionVector = t(permutationMatrix) %*% selectionVector
+  }
+  return((0.5 * (llk + sumOfSquares))[1])
+}
+
+####################################
+# Run Kalman filter recursions
+####################################
+
+CETKalmanFilter <- function(stateSpaceModel){
+  data <- stateSpaceModel$data
+  nObs <- length(data)
+  nStates <- stateSpaceModel$nStates
+  seasons <- stateSpaceModel$seasons
+  permutationMatrix <- cbind(c(rep(0,seasons-1), 1), diag(seasons)[,-seasons])
+  selectionVector <- c(1, numeric(seasons-1))
+  llk <- 0
+  sumOfSquares <- 0
+  stateSpaceModel$innovations = stateSpaceModel$innovationsVar <- rep(NA, nObs)
+  stateSpaceModel$statePrediction = stateSpaceModel$statePredictionVar <- matrix(NA, nrow = nObs, ncol = nStates)
+  A <- stateSpaceModel$A
+  P <- stateSpaceModel$P
+  GG <- 0
+  for (t in 1:length(data)) {
+    Z <- c(t(selectionVector) %*% stateSpaceModel$loadings, 1)
+    X <- c(selectionVector, t * selectionVector)
+    mT <- diag(c(1, t(selectionVector) %*% stateSpaceModel$arCoefs))
+    HH <- diag(c(1, t(selectionVector) %*% stateSpaceModel$sigmaEps))
+    if(!is.na(data[t])){ #Observation
+      v <- data[t] - Z %*% A - X %*% c(stateSpaceModel$seasonalIntercepts, stateSpaceModel$drifts)
+      f <- Z %*% P %*% Z  + GG
+      K <- mT %*% P %*% Z  %*% (1/f) 
+      A <- mT %*% A + K %*% v
+      P <- mT %*% P %*% mT + HH - (K %*% t(K)) * drop(f)
+      llk <- llk + log(f)
+      sumOfSquares <- sumOfSquares + v^2/f
+      stateSpaceModel$innovations[t] <- v
+      stateSpaceModel$innovationsVar[t] <- f
+    } else { #Missing observation
+      A <- mT %*% A
+      P <- mT %*% P %*% t(mT) + HH
+    }
+    selectionVector <- t(permutationMatrix) %*% selectionVector
+    stateSpaceModel$statePrediction[t, ] <- A
+    stateSpaceModel$statePredictionVar[t, ] <- diag(P)
+  }
+  stateSpaceModel$llk <- 0.5 * (llk + sumOfSquares)
+  return(stateSpaceModel)
+}
+
+####################################
+# Run state smoothing recursions 
+####################################
+
+stateSmoother <- function(stateSpaceModel){
+  data <- stateSpaceModel$data
+  nObs <- length(data)
+  nStates <- stateSpaceModel$nStates
+  seasons <- stateSpaceModel$seasons
+  permutationMatrix <- cbind(c(rep(0,seasons-1), 1), diag(seasons)[,-seasons])
+  selectionVector <- c(1, numeric(seasons-1))
+  A <- stateSpaceModel$A
+  P <- stateSpaceModel$P
+  aV = aF <- array(NA, dim = c(1,1, nObs))
+  aaF = aK <- array(NA, dim = c(nStates, 1, nObs))
+  aP <- array(NA, dim = c(nStates, nStates, nObs))
+  #Kalman recursions
+  GG <- 0
+  for (t in 1:nObs) {
+    Z <- c(t(selectionVector) %*% stateSpaceModel$loadings, 1)
+    X <- c(selectionVector, t * selectionVector)
+    mT <- diag(c(1, t(selectionVector) %*% stateSpaceModel$arCoefs))
+    HH <- diag(c(1, t(selectionVector) %*% stateSpaceModel$sigmaEps))
+    aaF[,,t] <- A
+    aP[,,t] <- P
+    if(!is.na(data[t])){
+      v <- data[t] - Z %*% A - X %*% c(stateSpaceModel$seasonalIntercepts, stateSpaceModel$drifts)
+      f <- Z %*% P %*% Z  + GG
+      K <- mT %*% P %*% Z  %*% (1/f) 
+      A <- mT %*% A + K %*% v
+      P <- mT %*% P %*% mT + HH - (K %*% t(K)) * drop(f)
+      aV[,, t] <- v
+      aF[,, t] <- f
+      aK[,, t] <- K
+    } else { #Missing observation
+      A <- mT %*% A
+      P <- mT %*% P %*% t(mT) + HH
+    }
+    selectionVector <- t(permutationMatrix) %*% selectionVector
+  }
+  #Smoothing recursions
+  r <- numeric(nStates)
+  n <- matrix(0, nrow = nStates, ncol = nStates)
+  stateSpaceModel$smoothedP = stateSpaceModel$smoothedA <- matrix(NA, nrow = nStates, ncol = nObs)
+  for (t in nObs : 1) {
+    selectionVector <- permutationMatrix %*% selectionVector
+    Z <- c(t(selectionVector) %*% stateSpaceModel$loadings, 1)
+    mT <- diag(c(1, t(selectionVector) %*% stateSpaceModel$arCoefs))
+    if(!is.na(data[t])){
+      fInv <- 1/aF[,, t]
+      L <- mT - aK[,, t] %*% t(Z)
+      r <- Z %*% t(fInv) %*% aV[,, t, drop = FALSE] + t(L) %*% r
+      n <- Z %*% t(fInv) %*% Z + t(L) %*% n %*% L
+    } else {
+      r <- mT %*% r
+      n <- t(mT) %*% n %*% mT
+    }
+    stateSpaceModel$smoothedA[, t] <- aaF[,,t] + aP[,, t] %*% r
+    stateSpaceModel$smoothedP[, t] <- diag(aP[,, t] - aP[,, t] %*% n %*% aP[,, t])
+  }
+  return(stateSpaceModel)
+}
+
+####################################
+# Calculate periodic spline matrix 
+####################################
+
+periodicSpline <- function(x, dX){
+  # init
+  k <- length(x) - 1
+  h <- diff(x)
+  h <- c(h, h[1])
+  p <- 2 * diag(k)
+  q <- matrix(0, nrow = k, ncol = k)
+  for (i in 1:(k-1)) {
+    p[i, i+1] <- h[i + 1]/(h[i] + h[i + 1])
+    p[i+1, i] <- h[i + 1]/(h[i+1] + h[i + 2])
+    q[i,i] <- -6/(h[i] * h[i+1])
+    q[i, i+1] <- 6 / (h[i+1] * ((h[i] + h[i + 1])))
+    q[i+1, i] <- 6/ (h[i+1] * (h[i+1] + h[i + 2]))
+  }
+  p[1, k] <- h[1] / (h[1] + h[2])
+  p[k, 1] <- h[1] / (h[1] + h[k])
+  q[1, k] <- 6/(h[1] * (h[1] + h[2]))
+  q[k, 1] <- 6 / (h[1] * (h[1] + h[k]))
+  q[k, k] <- -6 / (h[1] * h[k])
+  if(sum(dX == x) == 1){
+    s <- numeric(k)
+    if(dX == x[1]){
+      r <- c(rep(0, k-1), 1)
+    }
+    else{
+      r <- as.numeric(dX == x[2:length(x)])
+    }
+  } else {
+    ind <- which(dX < x)[1]
+    dX_j <- x[ind]
+    dX_jMinus1 <- x[ind-1]
+    s = r <- numeric(k)
+    if (ind == 2){
+      r[k] <- (dX_j - dX)/(dX_j - dX_jMinus1)
+      r[1] <- (dX - dX_jMinus1)/(dX_j - dX_jMinus1)
+      s[k] <- (dX_j - dX) * ( (dX_j - dX)^2 - (dX_j - dX_jMinus1)^2) / (6*(dX_j-dX_jMinus1))
+      s[ind - 1] <- (dX - dX_jMinus1) * ( (dX - dX_jMinus1)^2 - (dX_j - dX_jMinus1)^2) / (6 *(dX_j - dX_jMinus1))
+    }else if( (ind > 2) && (ind <= k+1)){
+      r[ind - 2] <- (dX_j - dX)/(dX_j - dX_jMinus1)
+      r[ind - 1] <- (dX- dX_jMinus1)/(dX_j - dX_jMinus1)
+      s[ind - 2] <- (dX_j - dX) * ( (dX_j-dX)^2 - (dX_j - dX_jMinus1)^2)/(6*(dX_j - dX_jMinus1))
+      s[ind - 1] <- (dX - dX_jMinus1) * ( (dX-dX_jMinus1)^2 - (dX_j - dX_jMinus1)^2)/ (6 * (dX_j - dX_jMinus1))
+    }
+  }
+  weights <- r + s %*% solve(p) %*% q
+  return(weights)
+}
+
+
+################################################################################
+####################################### MAIN ###################################
+################################################################################
+
+########################################
+########### CET ########################
+########################################
+
+# read data
+data <- CET$deg.C
+
+# estimate model
+
+vP<-matrix(c(2.6364503666, 7.8897124179, 16.1293937413, 9.3260138651, 3.0110742683, 0.0005924336, 0.0003307760, 0.0001949931, 0.0005922216, 0.0006470174, -4.5701406445, -3.5782102489, -3.7635885898, -3.6156864796, -4.4655601670, 0.6714042120, 0.1362521544, 0.7114851103, 0.1302760087, 0.5434089808, 0.9841380001, 0.2137909968, 0.0741447382, 0.5815697504, 1.3048295542), 25, 1)
+
+stateSpaceModelCET <- estimateModel(data, vP)
+vP<-stateSpaceModelCET$parameters
+stateSpaceModelCET$Year<-CET$Year
+
+# standard errors by delta-method
+mH_<-ginv(stateSpaceModelCET$mH) # Moore-Penrose inverse from MASS package
+cS<-stateSpaceModelCET$seasons
+mW<-stateSpaceModelCET$splineWeights
+ck<-ncol(stateSpaceModelCET$splineWeights)
+mJ<-matrix(0,5*cS,5*ck)
+mJ[1:cS,1:ck]<-mW
+mJ[(cS+1):(2*cS),(ck+1):(2*ck)]<-mW
+mJ[(2*cS+1):(3*cS),(2*ck+1):(3*ck)]<-mW%*%exp(vP[(2*ck+1):(3*ck)])
+for (i in 1:ck){
+  mJ[(3*cS+1):(4*cS),(3*ck+i)]<-2*mW[,i]*exp(-mW%*%vP[(3*ck+1):(4*ck)])/(1+exp(-mW%*%vP[(3*ck+1):(4*ck)]))^2
+  mJ[(4*cS+1):(5*cS),(4*ck+i)]<-mW[,i]*exp(mW%*%vP[(4*ck+1):(5*ck)])
+}
+stateSpaceModelCET$vSe<-sqrt(diag(mJ%*%mH_%*%t(mJ)))
+
+# store results
+ResultCET.table<-data.frame(
+  mu = stateSpaceModelCET$seasonalIntercepts,
+  se_mu = stateSpaceModelCET$vSe[1:12],
+  beta = stateSpaceModelCET$drifts,
+  se_beta = stateSpaceModelCET$vSe[13:24],
+  theta = stateSpaceModelCET$loadings,
+  se_theta = stateSpaceModelCET$vSe[25:36],
+  phi = stateSpaceModelCET$arCoefs,
+  se_phi = stateSpaceModelCET$vSe[37:48],
+  nu = stateSpaceModelCET$sigmaEps,
+  se_nu = stateSpaceModelCET$vSe[49:60]
+)
+
+# calculate phase from Eq. (6) in the paper
+seasons = months <- stateSpaceModelCET$seasons #Seasons and months
+cK = seasons * months
+timestamps <- rep(Years, each = 12) + rep(0:11)/12
+sine1 <- sin(2 * pi * 1:seasons/seasons)
+cosine1 <- cos(2 * pi * 1:seasons/seasons)
+omega <- 2 * pi/cK
+c2_CET <- sum(stateSpaceModelCET$seasonalIntercepts * cosine1)/12 + sum(stateSpaceModelCET$drifts * 1:12 * cosine1)/12
+c1_CET <- sum(stateSpaceModelCET$seasonalIntercepts * sine1)/12 + sum(stateSpaceModelCET$drifts * 1:12 * sine1)/12
+a2_CET <- sum(stateSpaceModelCET$drifts * cosine1)
+a1_CET <- sum(stateSpaceModelCET$drifts * sine1)
+nYears <- stateSpaceModelCET$nObs/seasons
+stateSpaceModelCET$eq6 = atan2(-(c1_CET + a1_CET*(1:(nYears-months))), c2_CET + a2_CET*(1:(nYears-months)))
+stateSpaceModelCET$arcSec = (stateSpaceModelCET$eq6[length(stateSpaceModelCET$eq6)] - stateSpaceModelCET$eq6[1])/(nYears - months) * 360 * 60 * 60 /(2*pi)
+
+########################################
+########### DeBilt #####################
+########################################
+
+# read data
+data <- DeBilt$deg.C
+
+# estimate model
+
+vP<-matrix(c(1.0905864929,8.4547675738,17.2645546569,10.6002709281,2.1740963728,0.0006709707,0.0004305480,0.0003204317,0.0002656379,0.0006695093,-3.3643526312,-3.2768097918,-3.5292404294,-3.3731564271,-3.1786987285,0.6999287763,0.1253102833,0.5585520713,0.2665742531,0.6193863136,1.4749460744,0.6181701467,0.3056625219,0.9087482876,1.9467557645),25,1)
+
+stateSpaceModelDeBilt <- estimateModel(data, vP)
+vP<-stateSpaceModelDeBilt$parameters
+stateSpaceModelDeBilt$Year<-DeBilt$Year
+
+# standard errors by delta-method
+mH_<-ginv(stateSpaceModelDeBilt$mH) # Moore-Penrose inverse from MASS package
+cS<-stateSpaceModelDeBilt$seasons
+mW<-stateSpaceModelDeBilt$splineWeights
+ck<-ncol(stateSpaceModelDeBilt$splineWeights)
+mJ<-matrix(0,5*cS,5*ck)
+mJ[1:cS,1:ck]<-mW
+mJ[(cS+1):(2*cS),(ck+1):(2*ck)]<-mW
+mJ[(2*cS+1):(3*cS),(2*ck+1):(3*ck)]<-mW%*%exp(vP[(2*ck+1):(3*ck)])
+for (i in 1:ck){
+  mJ[(3*cS+1):(4*cS),(3*ck+i)]<-2*mW[,i]*exp(-mW%*%vP[(3*ck+1):(4*ck)])/(1+exp(-mW%*%vP[(3*ck+1):(4*ck)]))^2
+  mJ[(4*cS+1):(5*cS),(4*ck+i)]<-mW[,i]*exp(mW%*%vP[(4*ck+1):(5*ck)])
+}
+stateSpaceModelDeBilt$vSe<-sqrt(diag(mJ%*%mH_%*%t(mJ)))
+
+# store results
+ResultDeBilt.table<-data.frame(
+  mu = stateSpaceModelDeBilt$seasonalIntercepts,
+  se_mu = stateSpaceModelDeBilt$vSe[1:12],
+  beta = stateSpaceModelDeBilt$drifts,
+  se_beta = stateSpaceModelDeBilt$vSe[13:24],
+  theta = stateSpaceModelDeBilt$loadings,
+  se_theta = stateSpaceModelDeBilt$vSe[25:36],
+  phi = stateSpaceModelDeBilt$arCoefs,
+  se_phi = stateSpaceModelDeBilt$vSe[37:48],
+  nu = stateSpaceModelDeBilt$sigmaEps,
+  se_nu = stateSpaceModelDeBilt$vSe[49:60]
+)
+
+# calculate phase from Eq. (6) in the paper
+seasons = months <- stateSpaceModelDeBilt$seasons #Seasons and months
+cK = seasons * months
+timestamps <- rep(Years, each = 12) + rep(0:11)/12
+sine1 <- sin(2 * pi * 1:seasons/seasons)
+cosine1 <- cos(2 * pi * 1:seasons/seasons)
+omega <- 2 * pi/cK
+c2_CET <- sum(stateSpaceModelDeBilt$seasonalIntercepts * cosine1)/12 + sum(stateSpaceModelDeBilt$drifts * 1:12 * cosine1)/12
+c1_CET <- sum(stateSpaceModelDeBilt$seasonalIntercepts * sine1)/12 + sum(stateSpaceModelDeBilt$drifts * 1:12 * sine1)/12
+a2_CET <- sum(stateSpaceModelDeBilt$drifts * cosine1)
+a1_CET <- sum(stateSpaceModelDeBilt$drifts * sine1)
+nYears <- stateSpaceModelDeBilt$nObs/seasons
+stateSpaceModelDeBilt$eq6 = atan2(-(c1_CET + a1_CET*(1:(nYears-months))), c2_CET + a2_CET*(1:(nYears-months)))
+stateSpaceModelDeBilt$arcSec = (stateSpaceModelDeBilt$eq6[length(stateSpaceModelDeBilt$eq6)] - stateSpaceModelDeBilt$eq6[1])/(nYears - months) * 360 * 60 * 60 /(2*pi)
+
+```
+
+**CET**: mu: seasonal intercepts, se_mu: standard error on seasonal intercepts, beta: seasonal slopes, se_beta: standard errors, theta: seasonal loadings on stochastic global warming trend, se_theta: standard errors, phi: seasonal AR(1) coefficients, se_phi: standard errors, nu: seasonal variances of AR(1) processes, se_nu: standard errors. Rows are months from January to December.
+
+```{r, echo=FALSE}
+library(knitr)
+kable(ResultCET.table, format="markdown")
+````
+
+**De Bilt**: Table design as above for CET.
+
+```{r, echo=FALSE}
+library(knitr)
+kable(ResultDeBilt.table, format="markdown")
+````
+
+With this seemingly inextricable bunch of numbers, we can do some interesting things. We can, for example, estimate the warming trend in the series, which consists of a deterministic part (the seasonal intercepts $\mu$ and trend slopes $\beta$) plus a stochastic part (the loadings $\theta$ times the scalar stochastic trend, a random walk that is estimated as an unobserved state in the state space model). They are shown in the next figure. This stochastic trend model allows for a higher resolution of the warming trend than simple (seasonal) linear trends that hold for the entire sample, as the monthsplots seem to suggest. There is not much warming in either series prior to 1925, a hiatus from about 1950 to about 1980, and an acceleration thereafter. We can also put confidence bands around these objects, but since the confidence intervals are simulation-based and take a while, I'm not doing that here and instead refer to [Proietti and Hillebrand (2017)](https://rss.onlinelibrary.wiley.com/doi/full/10.1111/rssa.12229) Figure 3.
+
+```{r, warming trend plots, fig.show="hold", out.width="50%", echo=FALSE}
+CET_mu_plot<-data.frame(Year=stateSpaceModelCET$Year,deg.C=stateSpaceModelCET$mu)
+fig_ts<-ggplot(CET_mu_plot, aes(x=Year,y=deg.C)) + geom_line(size=.5, color="blue")
+fig_ts <- fig_ts + ggtitle("CET warming trend")
+plot(fig_ts)
+
+DeBilt_mu_plot<-data.frame(Year=stateSpaceModelDeBilt$Year,deg.C=stateSpaceModelDeBilt$mu)
+fig_ts<-ggplot(DeBilt_mu_plot, aes(x=Year,y=deg.C)) + geom_line(size=.5, color="blue")
+fig_ts <- fig_ts + ggtitle("DeBilt warming trend")
+plot(fig_ts)
+```
+
+## The phase estimate
+
+Coming back to the central insight, what do these numbers tell us about a change in the phase of the seasons? As discussed above in the context of the monthplots of CET and De Bilt, we're not dealing with a simple phase shift as in Figure 3, where the onset of all seasons is simply shifted to a later point in time. Instead, we're dealing with a global warming trend that affects all seasons, but in different ways. The central insight then tells us that this must, in the way described in Eq. (6) in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml), also imply a change in the phase, because the trends in the temperature profiles mean that it gets warm earlier in calendar spring and summer and it gets cold later in calendar fall and winter. (Note that a simple shift in the timing of the seasons as in Figure 3 would mean that it gets warm *later* in calendar spring and summer.)
+
+```{r, phase plot, fig.show="hold", out.width="75%", echo=FALSE}
+CET_phase_plot<-data.frame(Year=(1766:2020),radians=stateSpaceModelCET$eq6)
+DeBilt_phase_plot<-data.frame(Year=(1718:2020),radians=stateSpaceModelDeBilt$eq6)
+
+fig_ts<-ggplot() + geom_line(data=CET_phase_plot, aes(x=Year,y=radians),size=.5,color="red")
+fig_ts<-fig_ts+geom_line(data=DeBilt_phase_plot, aes(x=Year,y=radians),size=.5,color="blue")
+fig_ts<-fig_ts+annotate("text",x=1985,y=2.49,color="red",label="CET slope = -58 arcseconds")
+fig_ts<-fig_ts+annotate("text",x=1880,y=2.52,color="blue",label="De Bilt slope = +13 arcseconds")
+fig_ts<-fig_ts + scale_color_discrete(labels=c("CET","De Bilt"))
+fig_ts <- fig_ts + ggtitle("CET and DeBilt phase time series")
+plot(fig_ts)
+```
+
+The graph above shows the phase changes implied by the seasonal intercepts $\mu$ and trends $\beta$ according to Eq. (6) in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml), both for CET and for De Bilt. Again, confidence intervals can be computed, and are in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml), but they are simulation-based, and so I omit them here. 
+
+Even though the temperature profiles are very similar, as we have discussed above, the phase curves are wildly different. They are difficult to interpret. Given the sign of the slopes, it is tempting to talk about negative or positive phase shifts, but again, we're dealing with a warming *trend*, not with a shift in the periodicity of a stationary time series. In Figure 3, imagine the dashed curve moving *up* over time instead of to the right. The relation in Eq. (6) remains mathematically true also in this case, but any slope in the phase curve is no longer indicative of a phase shift. One way I think about this is that the time-domain phenomenon of a seasonally differentiated warming trend wreaks havoc on the frequency-domain interpretation of the phase. Another way to think about it is that a trend, which is a non-stationary object by nature, cannot be understood with the toolbox for stationary objects, such as phase analysis.
+
+Mathematically, this "havoc" manifests itself in the function described in Eq. (6) in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml) not being one-to-one. There are many different seasonal trend configurations that are mapped to the same phase curve and thus to the same phase slope. The process I defined to produce Figure 3 above undergoes a phase shift of -50 arcseconds per year, roughly corresponding to a reversal of calendar summer and winter after about 13,000 years. This is what we would observe if the leap year mechanics of the calendar were broken for some reason, and the precession of the equinoxes would be fully reflected in the measured temperature profile. The very different temperature profile of the CET, nota bene, is also mapped by Eq. (6) to a "phase shift" of about -50 arcseconds per year. The profile of De Bilt, very similar to the one of CET, is mapped to a "phase shift" of +13 arcseconds per year. There's nothing wrong with our calendar, though. There's a lot wrong with the fossil-fuel induced warming trend, which is non-stationary and which makes talking about "phase shifts" meaningless, at least in the common interpretation.  That's the message of Eq. (6) in the non-stationary case. 
+
+This is a subtle point, and it is easy to get confused here. When [Thomson (1995)](https://www.science.org/doi/10.1126/science.268.5207.59) noted the slope of the CET phase (using a different method, complex demodulation, which does not resolve the seasonally differing trend slopes), he concluded that the precession signal was present in the time series. He also noted that other European temperature series did not exhibit the same "phase shift" as CET: *"For example, although Geneva and Basel are only 200 kilometers apart, the phase at Geneva followed precession, whereas at Basel the phase remained nearly constant until mid-century (...). Thus temperature at Basel follows the tropical year and Geneva the anomalistic." (p. 61)* He wrote in the abstract *"Analysis of instrumental temperature records beginning in 1659 shows that in much of the world the dominant frequency of the seasons is one cycle per anomalistic year (the time from perihelion to perihelion, 365.25964 days), not one cycle per tropical year (the time from equinox to equinox, 365.24220 days), and that the timing of the annual temperature cycle is controlled by perihelion. The assumption that the seasons were timed by the equinoxes has caused many statistical analyses of climate data to be badly biased."* 
+
+This seems an extraordinary claim, of course, that the temperatures in one location on the planet would contain an orbital signal that points in the geographical vicinity do not share. We show statistically in the [paper](https://journals.ametsoc.org/view/journals/clim/30/17/jcli-d-16-0747.1.xml) that this interpretation most likely is not true. Of the 16 temperature time series that we analyze, 9 do not contain the precession constant in a properly adjusted confidence interval around the point estimate and 7 do. We can reject the null hypothesis of precession being a common driver, even without using the non-injectivity of Eq. (6) in the argument. That the temperature profiles of the CET and a few other northern-hemispheric series result in an estimated "phase shift" reminiscent of the one implied by precession is likely happenstance. We're not looking at precession, we're looking at global warming.
+
+
+
+
+
+
+
