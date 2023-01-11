@@ -1,0 +1,499 @@
+---
+title: "Bennedsen, Hillebrand, and Koopman (2023, Journal of the Royal Statistical Society Series A)"
+author: "Eric Hillebrand"
+date: "01/06/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## The data
+
+We specify a statistical system model for the [Global Carbon Budget](https://globalcarbonbudget.org/carbonbudget/) data set. The data are released annually by the [Global Carbon Project](https://www.globalcarbonproject.org) and give a comprehensive picture of the state of Earth's carbon cycle (short-term). We are working with the global file, and here in particular with the spreadsheet "Global Carbon Budget". There are 7 variables in the spreadsheet, and we combine the variables "fossil emissions excluding carbonation" (+), "land use change" (+), and "cement carbonation sink" (-) to a variable "anthropogenic emissions". The variable "atmospheric growth", which are year-to-year changes in atmospheric CO2 concentrations (not growth rates) is cumulated to atmospheric CO2 concentrations. Then we specify a model for the 4 variables: anthropogenic emissions, "land sink", "ocean sink", and atmospheric concentrations. The 7th variable "budget imbalance" in the file is not used as input data but a natural result of our system model. As explanatory variables (that are exogenous to our system model), we also employ the [Southern Oscillation Index (SOI)](https://crudata.uea.ac.uk/cru/data/soi/) from the Climatic Research Unit of the University of East Anglia and the [World GDP](https://data.worldbank.org/indicator/NY.GDP.MKTP.KD) time series in constant 2015-dollars from the World Bank. In the paper, we analyze the GCB data vintage 2021; in this Markdown script, we use the vintage 2022. 
+
+
+
+```{r, time series plots, fig.show="hold", out.width="35%", echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(zoo)
+
+gcb_data<-read.csv(url("https://raw.githubusercontent.com/chisos9/data_public/master/GCB_model_global_2022.csv"))
+soi_data<-read.csv(url("https://raw.githubusercontent.com/chisos9/data_public/master/soi_3dp_1866_2021.csv"))
+
+Year<-gcb_data$Year
+SOI<-soi_data$Annual[94:156]  # 1959-2021: 94-156
+E_FF<-zooreg(gcb_data$E_FF,frequency=1,start=1959)
+E_LUC<-zooreg(gcb_data$E_LUC,frequency=1,start=1959)
+E<-zooreg(gcb_data$E_FF+gcb_data$E_LUC,frequency=1,start=1959)
+G_ATM<-zooreg(gcb_data$G_ATM,frequency=1,start=1959)
+S_LND<-zooreg(gcb_data$S_LND,frequency=1,start=1959)
+S_OCN<-zooreg(gcb_data$S_OCN,frequency=1,start=1959)
+GGDP<-zooreg(gcb_data$GGDP,frequency=1,start=1959)
+cGtC1959<-2.127*315.39
+vCreg<-(cGtC1959+cumsum(G_ATM))
+
+
+# time series plot
+fig_ts1<-ggplot(E, aes(x=Year,y=E)) + geom_line(size=3, color="blue")
+fig_ts1 <- fig_ts1 + ggtitle("Anthropogenic emissions") + ylab("GtC/Year")
+
+fig_ts2<-ggplot(vCreg, aes(x=Year,y=vCreg)) + geom_line(size=3, color="blue")
+fig_ts2 <- fig_ts2 + ggtitle("Atmospheric CO2 concentrations")  + ylab("GtC")
+
+fig_ts3<-ggplot(S_LND, aes(x=Year,y=S_LND)) + geom_line(size=3, color="blue")
+fig_ts3 <- fig_ts3 + ggtitle("Land sink")  + ylab("GtC/Year")
+
+fig_ts4<-ggplot(S_OCN, aes(x=Year,y=S_OCN)) + geom_line(size=3, color="blue")
+fig_ts4 <- fig_ts4 + ggtitle("Ocean sink")  + ylab("GtC/Year")
+
+
+plot(fig_ts2)
+plot(fig_ts1)
+
+plot(fig_ts3)
+plot(fig_ts4)
+```
+
+The figure shows the four variables that are modeled in the system. The upward trend is the most conspicuous common feature. It necessitates the use of statistical methods that are capable of handling non-stationary time series. In this paper, we use a state-space approach. 
+
+## The model
+
+The **state equations** of the GCB variables in the model are
+$$
+\begin{eqnarray}
+C^*_{t+1} & = & C^*_t + E^*_{t+1} - S\_LND^*_{t+1} - S\_OCN^*_{t+1} + \beta_7 I1991,\\
+S\_LND^*_{t+1} & = & c_1 + \frac{\beta_1}{C_{1750}} C^*_{t+1} + \beta_3 SOI_{t+1},\\
+S\_OCN^*_{t+1} & = & c_2 + \frac{\beta_2}{C_{1750}} C^*_{t+1} + \beta_4 SOI_{t+1},\\
+E^*_{t+1} & = & E^*_t + \beta_5 \Delta\log GDP_{t+1} + \beta_8 I1991 + X^E_t,
+\end{eqnarray}
+$$
+where $C_{1750}=593.42$ GtC is the atmospheric CO2 concentration in 1750 (pre-industrialization). The first equation expresses the central *global carbon budget equation* in the state variables $C^*$, $E^*$, $S\_LND^*$, and $S\_OCN^*$. The state variables are unobservable, denoted with an asterisk, and are estimated using the data set in the observation equations explained below. The global carbon budget equation states that any emissions $E^*$ that are not absorbed by either land sink $S\_LND^*$ or ocean sink $S\_OCN^*$ constitute a flow $C^*_{t+1}-C^*_t$ to the stock of atmospheric concentrations $C^*$. A dummy for 1991 captures an outlier in sink activity after 1990. The second and third equations describe sinks as linear functions of concentrations (giving them a trend-stationary appearance, since concentrations are very smooth and have little curvature on the sample, see the figure above). In the paper, we also estimate time-varying $\beta_1$ and $\beta_2$ coefficients and find them to be constant on the sample. The linear dependence on the exogenous variable SOI captures the influence of the ENSO cycle on sink activity. 
+
+The fifth equation describes changes in emissions as linear in World-GDP growth and otherwise following a stationary process $X^E$ that is an autoregressive process of order 1 with an estimated autoregressive coefficient of about 0.40. This renders anthropogenic emissions a process integrated of order 1 [I(1)] that cumulates a stationary AR(1) plus a time-varying drift that depends on world economic growth. A dummy for 1991 captures an outlier event following the collapse of the Soviet Union and the First Gulf War. The emissions equation is a *reduced-form* model: It describes the data well, but it does not have a structural interpretation. (Note for example that shutting off all economic activity does not lead to zero emissions in this equation. Thus, $\beta_5$ does not have the interpretation of an emission intensity of GDP.) In the paper, we also estimate a time-varying $\beta_5$ coefficient, and we find that it is constant on the sample. 
+
+Note that $X^E$ is the only endogenous source of variation in the state equations, i.e., the only *stochastic driver*. The two exogenous sources are $\Delta\log GDP$ and $SOI$. The non-stationarity in the model is solely the consequence of $E$ being I(1). The non-stationarity of $E$ propagates into $C$ by way of the global carbon budget equation, which states that $C$ cumulates $E$. This may lead one to expect that $C$ then is integrated of order 2, *but this is not the case*. Atmospheric concentrations $C$ are also I(1), because the sinks and their simultaneous dependence on concentrations prevent the cumulation of $E$ from generating I(2) dynamics. One can substitute the equations for $S\_LND^*$ and $S\_OCN^*$ into the global carbon budget equation, and one obtains 
+$$
+C^*_{t+1} =  C^*_t - \frac{\beta_1}{C_{1750}} C^*_{t+1} - \frac{\beta_2}{C_{1750}} C^*_{t+1} + E^*_{t+1} + \ldots
+$$
+as the autoregressive dynamics for $C$, or 
+$$
+C^*_{t+1} = \delta C^*_{t} + E^*_{t+1} + \ldots,
+$$
+where $\delta = [1+(\beta_1+\beta_2)/C_{1750}]^{-1}$. The coefficients $\beta_1/C_{1750}$ and $\beta_2/C_{1750}$ are both estimated from the data to be about 0.01, rendering $\delta\approx 1/1.02$. This means that the autoregressive root in $C$ is close to, but larger than unity, and together with $E\sim I(1)$, this results in $C$ being I(1) close to I(2). Section 2.6 in the paper shows the detailed derivations.
+
+The **observation equations** for the GCB variables are
+$$
+\begin{eqnarray}
+C_t & = & C^*_t + X_{1,t},\\
+S\_LND_t & = & S\_LND^*_t + X_{2,t},\\
+S\_OCN_t & = & S\_OCN^*_t + X_{3,t},\\
+E_t & = & E^*_t + \beta_6 I1997.
+\end{eqnarray}
+$$
+We also include an $X_{4,t}$ process in the emissions equation, but it is found in the estimation to be superfluous (its variance is estimated as essentially zero), so I ignore it here. The observation equations describe the data (variable names without asterisks) as consisting of the unobserved state processes (variable names with asterisks) plus covariance-stationary deviations processes $X_{i,t},\, i=1,2,3$. The 1997 dummy in emissions captures fire events in South-East Asia. This is an outlier in levels and not in differences, therefore it is included here. One could alternatively specify it in the state equation for $E^*$, which is formulated in differences, so there it would necessitate two dummies.
+
+The covariance-stationary processes $X_{i,t},\, i=1,2,3$ and $X^E_t$ are unobserved, and so they are added to the state equations with AR(1) dynamics:
+$$
+\begin{eqnarray}
+X_{i,t+1} & = & \phi_i X_{i,t} + \varepsilon_{i,t}, \quad i=1,2,3,\\
+X^E_{t+1} & = & \phi_E X^E_t + \kappa_t,
+\end{eqnarray}
+$$
+where the $\varepsilon_{i,t}$ and $\kappa_t$ are assumed to follow normal distributions with mean zero and constant variances. In the estimation, it is found that $X_2$, the deviations process for $S\_LND$ has essentially no serial correlation ($\phi_2\approx 0$). 
+
+
+## Estimation
+
+The model is a linear state space model that can be estimated by numerical maximization of the log-likelihood function, which is evaluated in the Kalman filter recursions. The filter recursions also provide best estimates of the unobserved state variables in a least-squares sense, together with estimates of the point-wise state variances. The estimated system of **state equations** for the GCB variables is reproduced below, with standard errors in parentheses.
+
+
+```{r, estimation, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+library(KFAS)
+library(MASS)
+mX1<-zooreg(gcb_data[,c('S_LND','S_OCN','G_ATM','GGDP')],frequency=1,start=1959)
+mX<-cbind(E,mX1)
+cGtC1750<-2.127*279
+vCreg0<-vCreg/cGtC1750
+
+# housekeeping
+cT<-nrow(mX) # no of obs
+cN<-4 # no of measurement variables
+cr<-17 # no of state variables
+
+# Definition of state space model
+# Organization of state vector: 1 C*, 2 G_ATM*, 3 S_LND*, 4 S_OCN*, 5 X_1, 6 X_2, 7 X_3, 8 X^E, 9 E*
+#                               10 c_1, 11 c_2, 12 beta_3, 13 beta_4, 14 beta_5, 15 beta_6, 16 beta_7, 17 beta_8
+
+va1<-matrix(0,cr,1)
+PinitXE<-3
+# Big K initialization
+mP1<-1000000*diag(1,cr)
+mP1[5,5]<-1.5
+mP1[6,6]<-0.50
+mP1[7,7]<-0.02
+mP1[8,8]<-PinitXE
+mP1inf<-diag(0,cr)
+
+# define KFAS state space model with mObs as measurement variables
+mObs<-cbind(vCreg,E,mX[,2],mX[,3])
+mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=array(NA,c(cN,cr,cT)),T=array(NA,c(cr,cr,cT)),R=array(NA,c(cr,cr,cT)),Q=matrix(NA,cr,cr),a1=va1,P1=mP1,P1inf=mP1inf),H=matrix(0,cN,cN))
+
+# objective function of the state space model
+objf <- function(pars,model,estimate=TRUE){
+  beta1<-10*exp(-pars[1])/((1+exp(-pars[1]))*cGtC1750)
+  beta2<-10*exp(-pars[2])/((1+exp(-pars[2]))*cGtC1750)
+  mZ<-matrix(0,cN,cr)
+  mZ[1,1]<-mZ[1,5]<-mZ[2,9]<-mZ[3,3]<-mZ[3,6]<-mZ[4,4]<-mZ[4,7]<-1
+  mZ1<-array(0,c(cN,cr,cT))
+  mZ1[, ,]<-mZ
+  mZ1[2,15,39]<-1 # 1997 in E equation
+  model$Z<-mZ1
+  cInv<-1/(1+beta1+beta2)
+  mT<-matrix(0,cr,cr)
+  mT[1,1]<-mT[1,8]<-mT[1,9]<-cInv
+  mT[1,10]<-mT[1,11]<- -cInv
+  mT[2,1]<- -(beta1+beta2)*cInv
+  mT[2,8]<-mT[2,9]<-cInv
+  mT[2,10]<-mT[2,11]<- -cInv
+  mT[3,1]<-mT[3,8]<-mT[3,9]<-beta1*cInv
+  mT[3,10]<-(1+beta2)*cInv
+  mT[3,11]<- -beta1*cInv
+  mT[4,1]<-mT[4,8]<-mT[4,9]<-beta2*cInv
+  mT[4,10]<- -beta2*cInv
+  mT[4,11]<-(1+beta1)*cInv
+  mT[5,5]<-exp(-pars[3])/(1+exp(-pars[3]))
+  mT[7,7]<-exp(-pars[4])/(1+exp(-pars[4]))
+  mT[8,8]<-exp(-pars[5])/(1+exp(-pars[5]))
+  mT[9,8]<-mT[9,9]<-mT[10,10]<-mT[11,11]<-mT[12,12]<-mT[13,13]<-mT[14,14]<-mT[15,15]<-mT[16,16]<-mT[17,17]<-1
+  mT1<-array(0,c(cr,cr,cT))
+  mT1[, ,]<-mT
+  # GDP
+  mT1[1,14,1:(cT-1)]<-mT1[2,14,1:(cT-1)]<-mX[2:cT,5]*cInv
+  mT1[3,14,1:(cT-1)]<-beta1*mX[2:cT,5]*cInv
+  mT1[4,14,1:(cT-1)]<-beta2*mX[2:cT,5]*cInv
+  mT1[9,14,1:(cT-1)]<-mX[2:cT,5]
+  # SOI
+  mT1[1,12,1:(cT-1)]<- -SOI[2:cT]*cInv
+  mT1[1,13,1:(cT-1)]<- -SOI[2:cT]*cInv
+  mT1[2,12,1:(cT-1)]<- -SOI[2:cT]*cInv
+  mT1[2,13,1:(cT-1)]<- -SOI[2:cT]*cInv
+  mT1[3,12,1:(cT-1)]<-(1+beta2)*SOI[2:cT]*cInv
+  mT1[3,13,1:(cT-1)]<- -beta1*SOI[2:cT]*cInv
+  mT1[4,12,1:(cT-1)]<- -beta2*SOI[2:cT]*cInv
+  mT1[4,13,1:(cT-1)]<-(1+beta1)*SOI[2:cT]*cInv
+  # I1991 in G_ATM*
+  mT1[1,16,33]<-cInv
+  mT1[2,16,33]<-cInv
+  mT1[3,16,33]<-beta1*cInv
+  mT1[4,16,33]<-beta2*cInv
+  # # I1991 in C*
+  # mT1[1,16,33]<-cInv                   # to put the 1991 dummy in C or in G_ATM is equivalent,
+  # mT1[2,16,33]<- -cInv*(beta1+beta2)   # this is just a matter of how one wants to define G_ATM  
+  # mT1[3,16,33]<-beta1*cInv             # (shall the spike from the 1991 dummy show in the smoothed process).
+  # mT1[4,16,33]<-beta2*cInv
+  # I1991 in E*
+  mT1[1,17,33]<-mT1[2,17,33]<-cInv
+  mT1[3,17,33]<-beta1*cInv
+  mT1[4,17,33]<-beta2*cInv
+  mT1[9,17,33]<-1
+  model$T<-mT1
+  mQ<-matrix(0,cr,cr)
+  mQ[5,5]<-exp(pars[6]) # var X1
+  mQ[6,6]<-exp(pars[7]) # var X2
+  mQ[7,7]<-exp(pars[8]) # var X3
+  mQ[8,8]<-exp(pars[9]) # var XE
+  r12<-(1-exp(-pars[10]))/(1+exp(-pars[10]))
+  r13<-(1-exp(-pars[11]))/(1+exp(-pars[11]))
+  mQ[5,6]<-mQ[6,5]<-r12*sqrt(mQ[5,5])*sqrt(mQ[6,6])
+  mQ[5,7]<-mQ[7,5]<-r13*sqrt(mQ[5,5])*sqrt(mQ[7,7])
+  model$Q[, ,1]<-mQ
+  s_E<-7*exp(-pars[12])/(1+exp(-pars[12]))
+  mR<-matrix(0,cr,cr)
+  mR[5:8,5:8]<-diag(4)      # Note that R is incompletely populated:
+  mRpar<-mR                 # There are also non-zero entries in cols 1-4 and 9.
+  mRpar[8,8]<-s_E           # However, the entries 1-4 and 9 of the state error vector 
+  mR1<-array(0,c(cr,cr,cT)) # are zero, and therefore, this doesn't matter.
+  # 1959-1995
+    mR1[, , 1:37]<-mR
+  # 1996-2019
+    mR1[, , 38:cT]<-mRpar
+  model$R<-mR1
+  if (estimate){
+    -logLik(model)
+  } else {
+    model
+  }
+}
+
+# estimation
+load(file=url('https://raw.githubusercontent.com/chisos9/data_public/master/parameters_model2.rda'))
+mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=TRUE) # use your favorite numerical optimizer here
+vPi<-mdl.opt$par
+
+# evaluate Kalman filter and smoother in the optimum
+mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+
+# calculate model parameters from transformed parameters inside optimization
+beta1_est<-10*exp(-vPi[1])/(1+exp(-vPi[1]))
+beta2_est<-10*exp(-vPi[2])/(1+exp(-vPi[2]))
+c_est<-1+(beta1_est+beta2_est)/cGtC1750
+phi1_est<-exp(-vPi[3])/(1+exp(-vPi[3]))
+phi3_est<-exp(-vPi[4])/(1+exp(-vPi[4]))
+phiE_est<-exp(-vPi[5])/(1+exp(-vPi[5]))
+sigma2_eta1_est<-exp(vPi[6])
+sigma2_eta2_est<-exp(vPi[7])
+sigma2_eta3_est<-exp(vPi[8])
+sigma2_eta4_est<-exp(vPi[9])
+r12_est<-(1-exp(-vPi[10]))/(1+exp(-vPi[10]))
+r13_est<-(1-exp(-vPi[11]))/(1+exp(-vPi[11]))
+s_E_est<-7*exp(-vPi[12])/(1+exp(-vPi[12]))
+
+# parameter estimates from constant states
+c1_filt<-mdl.kfs$alphahat[1,10]
+c1_filt_se<-sqrt(mdl.kfs$V[10,10,cT])
+c2_filt<-mdl.kfs$alphahat[1,11]
+c2_filt_se<-sqrt(mdl.kfs$V[11,11,cT])
+beta3_filt<-mdl.kfs$alphahat[1,12]
+beta3_filt_se<-sqrt(mdl.kfs$V[12,12,cT])
+beta4_filt<-mdl.kfs$alphahat[1,13]
+beta4_filt_se<-sqrt(mdl.kfs$V[13,13,cT])
+beta5_filt<-mdl.kfs$alphahat[1,14]
+beta5_filt_se<-sqrt(mdl.kfs$V[14,14,cT])
+beta6_filt<-mdl.kfs$alphahat[1,15]
+beta6_filt_se<-sqrt(mdl.kfs$V[15,15,cT])
+beta7_filt<-mdl.kfs$alphahat[1,16]
+beta7_filt_se<-sqrt(mdl.kfs$V[16,16,cT])
+beta8_filt<-mdl.kfs$alphahat[1,17]
+beta8_filt_se<-sqrt(mdl.kfs$V[17,17,cT])
+
+# standard errors on MLE parameters by delta method
+mJ<-diag(12)  # Jacobian
+mJ[1:2,1:2]<-diag(-10*exp(-vPi[1:2])/(1+exp(-vPi[1:2]))^2)
+mJ[3:5,3:5]<-diag(-exp(-vPi[3:5])/(1+exp(-vPi[3:5]))^2)
+mJ[6:9,6:9]<-diag(exp(vPi[6:9]))
+mJ[10,10]<- -2*exp(-vPi[10])/(1+exp(-vPi[10]))^2
+mJ[11,11]<- -2*exp(-vPi[11])/(1+exp(-vPi[11]))^2
+mJ[12,12]<- -7*exp(-vPi[12])/(1+exp(-vPi[12]))^2
+H_<-ginv(mdl.opt$hessian) # Moore-Penrose inverse from MASS package
+vSe<-sqrt(diag(mJ%*%H_%*%mJ))
+```
+
+$$
+\begin{eqnarray}
+C^*_{t+1} & = & C^*_t + E^*_{t+1} - S\_LND^*_{t+1} - S\_OCN^*_{t+1} \underset{(`r round(beta7_filt_se,digits=2)`)}{`r round(beta7_filt,digits=2)`} \, I1991,\\
+S\_LND^*_{t+1} & = & \underset{(`r round(c1_filt_se,digits=2)`)}{`r round(c1_filt,digits=2)`}  + \underset{(`r round(vSe[1],digits=2)`)}{`r round(beta1_est,digits=2)`} \,  \frac{C^*_{t+1}}{C_{1750}} + \underset{(`r round(beta3_filt_se,digits=2)`)}{`r round(beta3_filt,digits=2)`} \, SOI_{t+1},\\
+S\_OCN^*_{t+1} & = & \underset{(`r round(c2_filt_se,digits=2)`)}{`r round(c2_filt,digits=2)`}  + \underset{(`r round(vSe[2],digits=2)`)}{`r round(beta2_est,digits=2)`} \,  \frac{C^*_{t+1}}{C_{1750}}  \underset{(`r round(beta4_filt_se,digits=2)`)}{`r round(beta4_filt,digits=2)`}\, SOI_{t+1},\\
+E^*_{t+1} & = & E^*_t + \underset{(`r round(beta5_filt_se,digits=2)`)}{`r round(beta5_filt,digits=2)`}\, \Delta\log GDP_{t+1} \underset{(`r round(beta8_filt_se,digits=2)`)}{`r round(beta8_filt,digits=2)`}\, I1991 + X^E_t.
+\end{eqnarray}
+$$
+
+The **state equations** pertaining to the deviations processes are as follows.
+$$
+\begin{eqnarray}
+X_{1,t+1} & = & \underset{(`r round(vSe[3],digits=2)`)}{`r round(phi1_est,digits=2)`}\, X_{1,t} + \varepsilon_{1,t}, & \quad & \varepsilon_{1,t}  \sim  \mathsf{N}(0, \underset{(`r round(vSe[6],digits=2)`)}{`r round(sigma2_eta1_est,digits=2)`}),\\
+X_{2,t+1} & = & \varepsilon_{2,t}, & \quad &  \varepsilon_{2,t}  \sim  \mathsf{N}(0, \underset{(`r round(vSe[7],digits=2)`)}{`r round(sigma2_eta2_est,digits=2)`}),\\
+X_{3,t+1} & = & \underset{(`r round(vSe[4],digits=2)`)}{`r round(phi3_est,digits=2)`}\, X_{i,t} + \varepsilon_{3,t}, & \quad &  \varepsilon_{3,t}  \sim  \mathsf{N}(0, \underset{(`r round(vSe[8],digits=4)`)}{`r round(sigma2_eta3_est,digits=3)`}),\\
+X^E_{t+1} & = & \underset{(`r round(vSe[5],digits=2)`)}{`r round(phiE_est,digits=2)`}\, X^E_t + \kappa_t, & \quad & \kappa_t  \sim  \mathsf{N}(0, \underset{(`r round(vSe[9],digits=4)`)}{`r round(sigma2_eta4_est,digits=3)`}).
+\end{eqnarray}
+$$
+The correlation between $\varepsilon_{1,t}$ and $\varepsilon_{2,t}$ is estimated at `r round(r12_est,digits=2)` (`r round(vSe[10],digits=2)`), all other correlations are insignificant. We estimate a one-time shift in the variance of $\kappa_t$: From 1996 onward, the pre-1996 variance is multiplied by the square of `r round(s_E_est,digits=2)` (`r round(vSe[12],digits=2)`). The only parameter to report for the **observation equations** is $\beta_6$, the level dummy for 1991 in the emissions equation; it is estimated at `r round(beta6_filt,digits=2)` (`r round(beta6_filt_se,digits=2)`).
+
+```{r, smooth plots, fig.show="hold", out.width="50%", echo=FALSE, message=FALSE, warning=FALSE}
+
+# time series plot
+fig_smooth1<-ggplot(E, aes(x=Year)) + geom_line(aes(y=E, color="E"), size=3) + geom_line(aes(y=mdl.kfs$alphahat[,9], color="E*"), size=2)
+fig_smooth1 <- fig_smooth1 + ggtitle("Anthropogenic emissions") + ylab("GtC/Year") + scale_color_manual(name=" ", values = c("E"="blue","E*" = "green"))
+
+fig_smooth2<-ggplot(G_ATM, aes(x=Year)) + geom_line(aes(y=G_ATM, color="G_ATM"), size=3) + geom_line(aes(y=mdl.kfs$alphahat[,2], color="G_ATM*"), size=2)
+fig_smooth2 <- fig_smooth2 + ggtitle("Changes in atmospheric CO2 concentrations")  + ylab("GtC") + scale_color_manual(name=" ", values = c("G_ATM"="blue","G_ATM*" = "green"))
+
+fig_smooth3<-ggplot(S_LND, aes(x=Year)) + geom_line(aes(y=S_LND, color="S_LND"), size=3) + geom_line(aes(y=mdl.kfs$alphahat[,3], color='S_LND*'),size=2)
+fig_smooth3 <- fig_smooth3 + ggtitle("Land sink")  + ylab("GtC/Year") + scale_color_manual(name=" ", values = c("S_LND"="blue","S_LND*" = "green"))
+
+fig_smooth4<-ggplot(S_OCN, aes(x=Year)) + geom_line(aes(y=S_OCN, color="S_OCN"), size=3) + geom_line(aes(y=mdl.kfs$alphahat[,4], color='S_OCN*'),size=2)
+fig_smooth4 <- fig_smooth4 + ggtitle("Ocean sink")  + ylab("GtC/Year") + scale_color_manual(name=" ", values = c("S_OCN"="blue","S_OCN*" = "green"))
+
+
+plot(fig_smooth2)
+plot(fig_smooth1)
+
+plot(fig_smooth3)
+plot(fig_smooth4)
+```
+
+The figure above shows the data (blue) together with the best estimates of the unobserved state processes of the GCB variables (the processes with asterisk, green). The best estimates are the so-called smoothed values, which are the expected values conditional on the entire data history. They are the output of the Kalman smoothing recursions. Instead of plotting atmospheric concentrations in the upper left panel, where the smoothed values simply overlay the data points, I plotted first differences of atmospheric concentrations $G\_ATM_t := C_t-C_{t-1}$ and the smoothed values of $G\_ATM^*_t := C^*_t-C^*_{t-1}$. Here, the discrepancies between the data and the model can be seen better. 
+
+The upper right panel shows that the model for emissions traces the data very well (the spike in 1997 is dummied out). As explained above, this is the way the model introduces non-stationarity into all four variables. The sink variables $S\_LND$ (lower left panel) and $S\_OCN$ (lower right panel) are simultaneously depending on atmospheric concentrations, which are defined in the global carbon budget equation by way of their first differences: $G\_ATM = E - S\_LND -S\_OCN$. An interesting feature is the upward trend in $G\_ATM$. As explained above, $C$ is I(1) (ranging on I(2)), and therefore $G\_ATM$ is I(0) (ranging on I(1)). Standard unit root tests shown in the paper classify $G\_ATM$ as trend-stationary, supporting that there is no unit root. The apparent linear trend is the result of atmospheric concentrations being smooth and close to linear on the sample. The scaled series $C_T/C_{1750}$ has an estimated slope of approximately 0.0057 on the sample. Emissions are close to linear as well, with an estimated slope of approximately 0.12 on the sample. According to the global carbon budget equation, we can therefore expect a trend in $G\_ATM$ of $0.12-(5.82+5.4)*0.0057 = 0.056$. The estimated trend of $G\_ATM$ is approximately 0.059, in close agreement.        
+
+```{r, residuals, fig.show="hold", out.width="35%", echo=FALSE, message=FALSE, warning=FALSE}
+library(forecast)
+
+# Re-run filtering with constant states set at estimated values and initial variance zero
+mdl.kfs_old<-mdl.kfs
+va1new<-matrix(0,cr,1)
+va1new[10:cr]<-mdl.kfs$att[60,10:cr]
+# Big K initialization
+mP1new<-1000000*diag(1,cr)
+mP1new[5,5]<-1.5
+mP1new[6,6]<-0.50
+mP1new[7,7]<-0.02
+mP1new[8,8]<-PinitXE
+mP1new[10:17,10:17]<-diag(0,8)
+mP1inf<-diag(0,cr)
+mdl.fit1<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mdl.fit$Z,T=mdl.fit$T,R=mdl.fit$R,Q=mdl.fit$Q,a1=va1new,P1=mP1new,P1inf=mP1inf),H=mdl.fit$H)
+mdl.kfs<-KFS(mdl.fit1,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+
+# Prepare residual ACF and PACF plots and calculate Ljung-Box stats
+stdres<-rstandard(mdl.kfs,type='recursive')
+
+# Residual diagnostics on standardized residuals
+kurtosis <- function(x) {
+  m4 <- mean((x-mean(x))^4)
+  kurt <- m4/(sd(x)^4)
+  return(kurt)
+}
+skewness <-  function(x) {
+  m3 <- mean((x-mean(x))^3)
+  skew <- m3/(sd(x)^3)
+  return(skew)
+}
+jarque_bera <- function(x){
+  k<-kurtosis(x)
+  s<-skewness(x)
+  jb<-cT/6*(s^2+(k-3)^2/4)
+  return(jb)
+}
+durbin_watson <- function(x){
+  cn<-length(x)
+  x<-x-mean(x)
+  num<-sum((x[2:cn]-x[1:(cn-1)])^2)
+  den<-sum(x^2)
+  dw<-num/den
+}
+# mDiag0 is a table of residual diagnostics as reported in the paper
+# Organization: Mean | Std.Dev. | Skewness | Kurtosis | Ljung-Box(1) | Jarque-Bera | Durbin-Watson
+mDiag0<-matrix(NA,4,7)
+mDiag0[1,1]<-mean(stdres[5:cT,1])
+mDiag0[2,1]<-mean(stdres[5:cT,2])
+mDiag0[3,1]<-mean(stdres[5:cT,3])
+mDiag0[4,1]<-mean(stdres[5:cT,4])
+mDiag0[1,2]<-sd(stdres[5:cT,1])
+mDiag0[2,2]<-sd(stdres[5:cT,2])
+mDiag0[3,2]<-sd(stdres[5:cT,3])
+mDiag0[4,2]<-sd(stdres[5:cT,4])
+mDiag0[1,3]<-skewness(stdres[5:cT,1])
+mDiag0[2,3]<-skewness(stdres[5:cT,2])
+mDiag0[3,3]<-skewness(stdres[5:cT,3])
+mDiag0[4,3]<-skewness(stdres[5:cT,4])
+mDiag0[1,4]<-kurtosis(stdres[5:cT,1])
+mDiag0[2,4]<-kurtosis(stdres[5:cT,2])
+mDiag0[3,4]<-kurtosis(stdres[5:cT,3])
+mDiag0[4,4]<-kurtosis(stdres[5:cT,4])
+stdresC.lb<-Box.test(stdres[5:cT,1],lag=1,type='Ljung-Box')
+stdresE.lb<-Box.test(stdres[5:cT,2],lag=1,type='Ljung-Box')
+stdresS_LND.lb<-Box.test(stdres[5:cT,3],lag=1,type='Ljung-Box')
+stdresS_OCN.lb<-Box.test(stdres[5:cT,4],lag=1,type='Ljung-Box')
+mDiag0[1,5]<-stdresC.lb$statistic
+mDiag0[2,5]<-stdresE.lb$statistic
+mDiag0[3,5]<-stdresS_LND.lb$statistic
+mDiag0[4,5]<-stdresS_OCN.lb$statistic
+mDiag0[1,6]<-jarque_bera(stdres[5:cT,1])
+mDiag0[2,6]<-jarque_bera(stdres[5:cT,2])
+mDiag0[3,6]<-jarque_bera(stdres[5:cT,3])
+mDiag0[4,6]<-jarque_bera(stdres[5:cT,4])
+mDiag0[1,7]<-durbin_watson(stdres[5:cT,1])
+mDiag0[2,7]<-durbin_watson(stdres[5:cT,2])
+mDiag0[3,7]<-durbin_watson(stdres[5:cT,3])
+mDiag0[4,7]<-durbin_watson(stdres[5:cT,4])
+
+
+# time series plot
+fig_res1<-ggplot(E, aes(x=Year,y=stdres[,1])) + geom_line(size=2, color="blue")
+fig_res1 <- fig_res1 + ggtitle("Residuals concentrations equation") + ylab("GtC")
+
+fig_res2<-ggplot(vCreg, aes(x=Year,y=stdres[,2])) + geom_line(size=2, color="blue")
+fig_res2 <- fig_res2 + ggtitle("Residuals emissions equation")  + ylab("GtC/year")
+
+fig_res3<-ggplot(S_LND, aes(x=Year,y=stdres[,3])) + geom_line(size=2, color="blue")
+fig_res3 <- fig_res3 + ggtitle("Residuals land sink equation")  + ylab("GtC/Year")
+
+fig_res4<-ggplot(S_OCN, aes(x=Year,y=stdres[,4])) + geom_line(size=2, color="blue")
+fig_res4 <- fig_res4 + ggtitle("Residuals ocean sink equation")  + ylab("GtC/Year")
+
+
+plot(fig_res1)
+plot(fig_res2)
+
+plot(fig_res3)
+plot(fig_res4)
+```
+
+To show the goodness of fit of the model to the data more systematically, the figure above plots the standardized prediction residuals, i.e., the discrepancies between the data points and the expected values conditional on the data time series up to one period before. (Note that these are not the differences between the blue and green curves above, since the green, smoothed values are expected values given all data, not just up to one period ahead.) The table below reports residual diagnostics for the prediction residuals. They show that the model captures the serial correlation in the data and renders the residuals indistinguishable from white noise (Ljung Box, Durbin-Watson). The Jarque-Bera test shows that the normality assumption on the residuals is supported by the data. (The critical value for the Ljung-Box test at lag 1 and confidence level 0.95 is 3.84 and for the Jarque-Bera test 5.99. The Durbin-Watson statistic should be close to the value of 2.)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+library(knitr)
+mDiag<-as.data.frame(mDiag0)
+rownames(mDiag)<-c("Concentrations","Emissions","Land sink","Ocean sink")
+colnames(mDiag)<-c("Mean","Std.dev.","Skew","Kurtosis","Ljung-Box(lag=1)","Jarque-Bera","Durbin-Watson")
+kable(mDiag, format="markdown")
+```
+
+## Airborne fraction and sink rate
+
+We compute the airborne fraction and the sink rate as an illustrative application of the model. We employ simulation smoothing to calculate confidence bands (gray shaded areas, 90% confidence level). Their interpretation is as follows: If you were given a large number of realizations from the same data-generating process, and you were to run the simulation smoothing on each of those realizations, then in about 90% of cases would the confidence bands cover the resulting smoothed airborne fraction and sink rate estimates. The figure confirms the current consensus in the literature: There is no evidence of a trend in the airborne fraction, but there is a decreasing trend in the sink rate.
+
+```{r, AF SR, fig.show="hold", out.width="45%", echo=FALSE, message=FALSE, warning=FALSE}
+cNumMC<-10000
+set.seed(9)
+conf<-0.90
+up_idx<-ceiling((conf+(1-conf)/2)*cNumMC)
+down_idx<-floor((1-conf)/2*cNumMC)
+
+AF_smooth<-mdl.kfs$alphahat[2:cT,2]/mdl.kfs$alphahat[2:cT,9]
+SR_smooth<-(mdl.kfs$alphahat[2:cT,3]+mdl.kfs$alphahat[2:cT,4])/(mdl.kfs$alphahat[2:cT,1]-cGtC1750)
+AF_smooth<-zooreg(AF_smooth, frequency=1, start=1959)
+SR_smooth<-zooreg(SR_smooth, frequency=1, start=1959)
+
+state_sim_model2<-simulateSSM(mdl.fit, type = c("states"), filtered = FALSE, nsim = cNumMC,antithetics = FALSE, conditional = TRUE)
+
+mAF<-matrix(NA,cT-1,cNumMC)
+mSR<-matrix(NA,cT-1,cNumMC)
+for (j in 1:cNumMC){
+  mAF[,j]<-state_sim_model2[2:cT,2,j]/state_sim_model2[2:cT,9,j]
+  mSR[,j]<-(state_sim_model2[2:cT,3,j]+state_sim_model2[2:cT,4,j])/(state_sim_model2[2:cT,1,j]-cGtC1750)
+}
+AF_up<-matrix(NA,cT-1,1)
+AF_down<-matrix(NA,cT-1,1)
+SR_up<-matrix(NA,cT-1,1)
+SR_down<-matrix(NA,cT-1,1)
+for (t in 1:(cT-1)){
+  AF_sort<-sort(mAF[t,])
+  SR_sort<-sort(mSR[t,])
+  AF_up[t]<-AF_sort[up_idx]
+  AF_down[t]<-AF_sort[down_idx]
+  SR_up[t]<-SR_sort[up_idx]
+  SR_down[t]<-SR_sort[down_idx]
+}
+fig_AF<-ggplot(AF_smooth, aes(x=Year[2:cT])) + geom_line(aes(y=AF_smooth),size=2, color="blue")
+fig_AF <- fig_AF + ggtitle("Airborne fraction") + ylab("ratio") + xlab("Year") + geom_ribbon(aes(ymin=AF_down, ymax=AF_up), alpha=0.5)
+plot(fig_AF)
+fig_SR<-ggplot(SR_smooth, aes(x=Year[2:cT])) + geom_line(aes(y=SR_smooth),size=2, color="blue")
+fig_SR <- fig_SR + ggtitle("Sink rate") + ylab("ratio") + xlab("Year") + geom_ribbon(aes(ymin=SR_down, ymax=SR_up), alpha=0.5)
+plot(fig_SR)
+```
+
+
+## Other material
+
+* [2020 Working Paper](https://pure.au.dk/portal/files/216615660/rp20_18_2.pdf)
+* [5 minute video on YouTube](https://www.youtube.com/watch?v=m2v_AIz-kCA) 
+* [45 minute video on YouTube](https://www.youtube.com/watch?v=LrErIO3x49c) 
+* [Supplementary material](https://github.com/chisos9/data_public/blob/master/BHK_2023_Supplementary_Material.pdf)
+* [Replication code](https://github.com/chisos9/data_public/blob/master/BHK_2023_replication_code.zip)
+* [Note on implementation](https://github.com/chisos9/data_public/blob/master/BHK_2023_implementation.pdf)
+* [Note on minimal system](https://github.com/chisos9/data_public/blob/master/BHK_2023_minimal_system.pdf)
+* [R Markdown code for this page](https://raw.githubusercontent.com/chisos9/data_public/master/BHK_GCB_Markdown.Rmd)
+
