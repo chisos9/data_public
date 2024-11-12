@@ -1,0 +1,1496 @@
+---
+title: "Bennedsen, Hillebrand, Koopman, and Larsen (2024)"
+author: "Eric Hillebrand"
+date: "04/07/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+[https://arxiv.org/abs/2404.05401](https://arxiv.org/abs/2404.05401)
+
+## State space methods for $\delta^{18}O$ and $\delta^{13}C$
+
+In the [paper](https://arxiv.org/abs/2404.05401), we specify random walk plus noise models and integrated random walk plus noise models for the time series of $\delta^{18}$O and $\delta^{13}$C measurements from benthic foraminifera collated in [Westerhold et al. (2020)](https://www.science.org/doi/full/10.1126/science.aba6853?). This R-Markdown script contains estimation code for all models discussed in the paper. It also provides code that imputes equidistantly time-stamped smoothed values (in the sense of the Kalman smoothing recursions) for a chosen model and a chosen (fixed) time increment.
+
+We provide download links for regular smoothed values from the preferred model for a number of fixed time increments at the end of this document. This R-Markdown script will become downloadable upon publication of the paper, so that it can serve for replication and for imputing regularly time-stamped imputed values from any model and for any time increment.
+
+The data plot below shows the time series of $\delta^{(18)}$O (left panel), $\delta^{13}$C (middle panel), and the time distance between consecutive observations. It is apparent that the later part of the record is denser than the early part.
+
+
+
+```{r, data preparation and time series plots, fig.show="hold", out.width="33%", echo=FALSE, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(zoo)
+library(KFAS)
+
+westerhold_data_unsort<-read.csv(url("https://raw.githubusercontent.com/chisos9/data_public/master/aba6853_tables_s8_s34.csv"),skip=1)
+westerhold_data<-westerhold_data_unsort[order(westerhold_data_unsort$age_tuned),]
+
+timeax_iso<-westerhold_data$age_tuned
+timeax_iso<- rev(-timeax_iso) # time runs from -66 MYA to 0
+d18O<- westerhold_data$benthic.d18O.VPDB.CorrAdjusted
+d18O<-rev(d18O) # Delta 18O runs from -66 MYA to 0, but is not multiplied by (-1)
+d13C<-westerhold_data$benthic.d13C.VPDB.CorrAdjusted
+d13C<-rev(d13C)
+
+cT_iso<-length(timeax_iso)
+idx_axis<-(1:cT_iso) # the original time axis has some multiple observations at 599 points, some are double, few are triple, one is quadruple
+
+# Studies
+vStudies<-rev(westerhold_data$benthic.Source) # the studies that provide the data in same order as d18O
+vSpecies<-rev(westerhold_data$benthic.Species)
+unique_studies<-unique(vStudies)
+unique_species<-unique(vSpecies)
+
+# Organization
+# [1] "Barnet et al. 2017"               "Hull et al. 2020"                 "Barnet et al. 2019"              
+# [4] "Littler et al. 2014"              "McCarren et al. 2008"             
+# [6] "Lauretano et al. 2015"            "Stap et al. 2010"                 "Thomas et al. 2018"              
+# [9] "Lauretano et al. 2016; 2018"      "Sexton et al. 2011"               "this study"                      
+# [12] "Westerhold et al. 2018 LLTM"      "Boscolo Galazzo et al. 2014"      "Lear et al. 2004"                
+# [15] "Coxall et al. 2005"               "Coxall & Wilson, 2011"            "Riesselmann et al. 2007"         
+# [18] "Paelike2006 PI Herrle"            "Wade and Paelike 2004"            "Liebrand et al. 2011;2016"       
+# [21] "Holbourn et al. 2015"             "Tian et al. 2014"                 "Holbourn et al. 2014"            
+# [24] "Holbourn et al. 2007;2013;2018"   "Drury et al. 2017"                "Tian et al. 2018"                
+# [27] "UniCambridge Hodell this study"   "Bell et al. 2014"                 "MARUM Bremen this study"         
+# [30] "Franz & Tiedemann2002"            "Tiedemann & Franz 1997"           "Billups et al. 1998"             
+# [33] "Bickert et al. 1997               "deMenocal et al. 1997" 
+# [35] Q
+
+vVarPos<-matrix(NA,cT_iso,1)
+for (i in 1:cT_iso){ # assign the source study to each point in time
+  if (vStudies[i]==unique_studies[1]){
+    vVarPos[i]<-1
+  } else if (vStudies[i]==unique_studies[2]){
+    vVarPos[i]<-2
+  } else if (vStudies[i]==unique_studies[3]){
+    vVarPos[i]<-3
+  } else if (vStudies[i]==unique_studies[4]){
+    vVarPos[i]<-4
+  } else if (vStudies[i]==unique_studies[5] || vStudies[i]==unique_studies[6]){
+    vVarPos[i]<-5
+  } else if (vStudies[i]==unique_studies[7]){
+    vVarPos[i]<-6
+  } else if (vStudies[i]==unique_studies[8]){
+    vVarPos[i]<-7
+  } else if (vStudies[i]==unique_studies[9]){
+    vVarPos[i]<-8
+  } else if (vStudies[i]==unique_studies[10]){
+    vVarPos[i]<-9
+  } else if (vStudies[i]==unique_studies[11]){
+    vVarPos[i]<-10
+  } else if (vStudies[i]==unique_studies[12]){
+    vVarPos[i]<-11
+  } else if (vStudies[i]==unique_studies[13]){
+    vVarPos[i]<-12
+  } else if (vStudies[i]==unique_studies[14]){
+    vVarPos[i]<-13
+  } else if (vStudies[i]==unique_studies[15]){
+    vVarPos[i]<-14
+  } else if (vStudies[i]==unique_studies[16]){
+    vVarPos[i]<-15
+  } else if (vStudies[i]==unique_studies[17]){
+    vVarPos[i]<-16
+  } else if (vStudies[i]==unique_studies[18]){
+    vVarPos[i]<-17
+  } else if (vStudies[i]==unique_studies[19]){
+    vVarPos[i]<-18
+  } else if (vStudies[i]==unique_studies[20]){
+    vVarPos[i]<-19
+  } else if (vStudies[i]==unique_studies[21]){
+    vVarPos[i]<-20
+  } else if (vStudies[i]==unique_studies[22]){
+    vVarPos[i]<-21
+  } else if (vStudies[i]==unique_studies[23]){
+    vVarPos[i]<-22
+  } else if (vStudies[i]==unique_studies[24]){
+    vVarPos[i]<-23
+  } else if (vStudies[i]==unique_studies[25]){
+    vVarPos[i]<-24
+  } else if (vStudies[i]==unique_studies[26]){
+    vVarPos[i]<-25
+  } else if (vStudies[i]==unique_studies[27]){
+    vVarPos[i]<-26
+  } else if (vStudies[i]==unique_studies[28]){
+    vVarPos[i]<-27
+  } else if (vStudies[i]==unique_studies[29]){
+    vVarPos[i]<-28
+  } else if (vStudies[i]==unique_studies[30]){
+    vVarPos[i]<-29
+  } else if (vStudies[i]==unique_studies[31]){
+    vVarPos[i]<-30
+  } else if (vStudies[i]==unique_studies[32]){
+    vVarPos[i]<-31
+  } else if (vStudies[i]==unique_studies[33]){
+    vVarPos[i]<-32
+  } else if (vStudies[i]==unique_studies[34] || vStudies[i]==unique_studies[35]){
+    vVarPos[i]<-33
+  } else if (vStudies[i]==unique_studies[36]){
+    vVarPos[i]<-34
+  }
+}
+
+# > unique_species
+# [1] "NTRUE"                                         "OUMB"                                         
+# [3] "CSUBS or CEOCEA, not specified in publication" "CPRAE"                                        
+# [5] "CSPP"                                          
+# [6] "CSPP, whole specimen"  (25 obs)                       
+# [7] "CSPP, >250"            (353 obs)                        
+# [8] "CSPP, >250, Reruns"    (58 obs)                       
+# [9] "CSPP, specimen >250 µm" (10 obs)                        
+# [10] "CSPP, 150-250"        (2 obs)  
+# [6-10] merged into [7]                        
+# [11] "CGRIM"                                         "CHAVA"                                        
+# [13] "CMUND"                                         "PWUEL; CMUND"                                 
+# [15] "PWUEL (eitherCKULL or PWUEL)"                  "PWUEL"                                        
+# [17] "CKULL"                                         "UVIG"                                         
+# [19] "GORB" (0 obs)                                 
+# [20] "PMURR" (0 obs)                                        
+# [21] "NUMB"                                          "CBRA"                                         
+# [23] "CCIC" 
+
+vVarPosSpecies<-matrix(NA,cT_iso,1)
+for (i in 1:cT_iso){ # assign the source study to each point in time
+  if (vSpecies[i]==unique_species[1]){
+    vVarPosSpecies[i]<-1
+  } else if (vSpecies[i]==unique_species[2]){
+    vVarPosSpecies[i]<-2
+  } else if (vSpecies[i]==unique_species[3]){
+    vVarPosSpecies[i]<-3
+  } else if (vSpecies[i]==unique_species[4]){
+    vVarPosSpecies[i]<-4
+  } else if (vSpecies[i]==unique_species[5]){
+    vVarPosSpecies[i]<-5
+  } else if (vSpecies[i]==unique_species[6]){
+    vVarPosSpecies[i]<-6
+  } else if (vSpecies[i]==unique_species[7]){
+    vVarPosSpecies[i]<-7
+  } else if (vSpecies[i]==unique_species[8]){
+    vVarPosSpecies[i]<-8
+  } else if (vSpecies[i]==unique_species[9]){
+    vVarPosSpecies[i]<-9
+  } else if (vSpecies[i]==unique_species[10]){
+    vVarPosSpecies[i]<-10
+  } else if (vSpecies[i]==unique_species[11]){
+    vVarPosSpecies[i]<-11
+  } else if (vSpecies[i]==unique_species[12]){
+    vVarPosSpecies[i]<-12
+  } else if (vSpecies[i]==unique_species[13]){
+    vVarPosSpecies[i]<-13
+  } else if (vSpecies[i]==unique_species[14]){
+    vVarPosSpecies[i]<-14
+  } else if (vSpecies[i]==unique_species[15]){
+    vVarPosSpecies[i]<-15
+  } else if (vSpecies[i]==unique_species[16]){
+    vVarPosSpecies[i]<-16
+  } else if (vSpecies[i]==unique_species[17]){
+    vVarPosSpecies[i]<-17
+  } else if (vSpecies[i]==unique_species[18]){
+    vVarPosSpecies[i]<-18
+  } else if (vSpecies[i]==unique_species[19]){
+    vVarPosSpecies[i]<-19
+  } else if (vSpecies[i]==unique_species[20]){
+    vVarPosSpecies[i]<-20
+  } else if (vSpecies[i]==unique_species[21]){
+    vVarPosSpecies[i]<-21
+  } else if (vSpecies[i]==unique_species[22]){
+    vVarPosSpecies[i]<-22
+  } else if (vSpecies[i]==unique_species[23]){
+    vVarPosSpecies[i]<-23
+  }
+}
+
+Dtau<-c(-99,diff(timeax_iso)) # version for finding positions: Delta_{tau}=t_{tau}-t_{tau-1} is at tau
+Dtau_SSM<-c(diff(timeax_iso),NA) # version for SSM state equation: Delta_{tau+1}=t_{tau+1}-t_tau is at tau
+
+timeax_unique<-unique(timeax_iso)
+cT<-length(timeax_unique)
+cT_mult<-length(timeax_iso)-cT
+timeax_rle<-rle(timeax_iso) # Run length encoding, corresp to unix "uniq -c", returns
+                            # list with (no of lengths of each run) and (values)
+                            # max(timeax_rle$lengths) gives max number of multiples
+
+
+
+# main data matrix mData organization
+# columns (the max number of multiple obs at one time stamp is 4)
+# 1   | 2               | 3               | 4         | 5         | 6       | 7       | 8       | 9       | 10      | 11      | 12      | 13      | 14        | 15        | 16        | 17        | 18        | 19        | 20        | 21        | 22          | 23          | 24          | 25          | 26          | 27          | 28          | 29                                                                 
+# Obs | Obs timeax_iso  | Obs Westerhold  | age_tuned | Delta age | d18O(1) | d18O(2) | d18O(3) | d18O(4) | d13C(1) | d13C(2) | d13C(3) | d13C(4) | 18OStudy1 | 18OStudy2 | 18OStudy3 | 18OStudy4 | 13CStudy1 | 13CStudy2 | 13CStudy3 | 13CStudy4 | 18OSpecies1 | 18OSpecies2 | 18OSpecies3 | 18OSpecies4 | 13CSpecies1 | 13CSpecies2 | 13CSpecies3 | 13CSpecies4
+mData<-matrix(NA,cT,29) # records observations and is stored for use in model estimation
+mData_multiples<-matrix(NA,cT_mult,29) # only contains multiple obs at one time stamp
+k<-1 # will go from 1:cT_iso
+l<-1 # will go from 1:cT_mult
+for (i in 1:cT){
+    if (timeax_rle$lengths[i]==1){
+      mData[i,1]<-i # final obs no
+      mData[i,2]<-k # index in timeax_iso
+      mData[i,3]<-cT_iso-k+1 # original obs no (in Westerhold data)
+      mData[i,4]<-timeax_unique[i] # time stamp
+      mData[i,5]<-Dtau_SSM[k] # delta t
+      mData[i,6]<-d18O[k]
+      if (!is.na(d18O[k]))
+      {
+        mData[i,14]<-vVarPos[k] # study identifier
+        mData[i,22]<-vVarPosSpecies[k] # species identifier
+      }
+      mData[i,10]<-d13C[k]
+      if (!is.na(d13C[k])){
+        mData[i,18]<-vVarPos[k] # study identifier
+        mData[i,26]<-vVarPosSpecies[k] # species identifier
+      }
+    } else {
+      mData[i,1]<-i # final obs no
+      mData[i,2]<-k # index in timeax_iso
+      mData[i,3]<-cT_iso-k+1 # original obs no (in Westerhold data)
+      mData[i,4]<-timeax_unique[i] # time stamp
+      mData[i,5]<-Dtau_SSM[k+timeax_rle$lengths[i]-1] # delta t
+      for (j in 1:timeax_rle$lengths[i]){
+        mData[i,5+j]<-d18O[k-1+j]
+        if (!is.na(d18O[k-1+j])){
+          mData[i,13+j]<-vVarPos[k-1+j] # study identifier
+          mData[i,21+j]<-vVarPosSpecies[k-1+j] # species identifier
+        }
+        mData[i,9+j]<-d13C[k-1+j]
+        if (!is.na(d13C[k-1+j])){
+          mData[i,17+j]<-vVarPos[k-1+j] # study identifier
+          mData[i,25+j]<-vVarPosSpecies[k-1+j] # species identifier
+        }
+      }
+      mData_multiples[l,]<-mData[i,]
+      l<-l+1
+  }
+    k<-k+timeax_rle$lengths[i]
+}
+
+obsax_plot<-zooreg(mData[,1])
+timeax_plot<-zooreg(mData[,4])
+d18O_plot<-zooreg(mData[,6])
+d13C_plot<-zooreg(mData[,10])
+Data<-data.frame(timeax=timeax_plot,d18O=d18O_plot,d13C=d13C_plot)
+Dtau_plot<-zooreg(mData[,5])
+
+# time series plot
+fig_ts1<-ggplot(d18O_plot, aes(x=timeax_plot,y=d18O_plot)) + geom_line(size=.1, color="blue")
+fig_ts1 <- fig_ts1 + ggtitle("Delta-O-18") + xlab("MYA") + ylab(" ") + scale_y_reverse()
+
+fig_ts2<-ggplot(d13C_plot, aes(x=timeax_plot,y=d13C_plot)) + geom_line(size=.1, color="blue")
+fig_ts2 <- fig_ts2 + ggtitle("Delta-C-13")  + xlab("MYA") + ylab(" ")
+
+fig_ts3<-ggplot(Dtau_plot, aes(x=obsax_plot,y=Dtau_plot)) + geom_line(size=.2, color="black")
+fig_ts3 <- fig_ts3 + ggtitle("Delta t")  + xlab("Observation") + ylab(" ")
+
+# fig_ts3<-ggplot(Data, aes(x=timeax)) + geom_line(aes(y=d18O,color="Delta-O-18"),size=.1) + geom_line(aes(y=d13C,color="Delta-C-13"),size=.1)
+# fig_ts3 <- fig_ts3 + ggtitle("Delta ")  + xlab("MYA") + ylab(" ") +   scale_colour_manual("", 
+#                       breaks = c("Delta-O-18", "Delta-C-13"),
+#                       values = c("black", "blue"))   + theme(
+#     legend.position = c(.2, .85),
+#     legend.justification = c("right", "bottom"),
+#     legend.box.just = "center",
+#     legend.margin = margin(6, 6, 6, 6)
+#     )
+
+plot(fig_ts1)
+plot(fig_ts2)
+plot(fig_ts3)
+```
+
+## Imputing regularly time stamped values
+
+In the following chunk of R code, you can specify the model you would like to impute smoothed values from by simply setting the value of the variable "Model". The output time series will have equidistant time stamps with constant time increment "Delta" in years. You can set this increment by editing in the code chunk as well. For Model 5, you also need to specify the order $m$ of integration, or, equivalently, the order of the corresponding Butterworth filter in the same fashion. The value set for $m$ is ignored for Models 1--4.
+
+The output time series are saved in a file "output.txt" in the same folder where you have saved this R-Markdown script. The file consists of three columns: (1) time stamps (in (-1) MY format, i.e., starting from -67 and ending at 0), (2) Delta-O-18 values, (3) Delta-C-13 values 
+
+```{r, Settings, echo=TRUE}
+Model<-4
+Delta<-50000 # years
+m<-2 # Integer. Used for Model 5, otherwise ignored. Implemented for m between 2 and 6. Note that m=1 is Model 3.
+```
+
+
+
+## Model 1: Random walk plus noise
+
+Model 1 specifies the time series as consisting of an unobserved random-walk component plus white noise in the measurement equation:
+
+$$
+y_{j,t_\nu} = \mu_{t_\nu} + \varepsilon_{j,t_\nu},
+$$
+where $t_\nu$, $\nu=1,\ldots, N=23722$, are the time stamps, $j=1,\ldots,4$ are the different measurements of $\delta^{18}O$ or $\delta^{13}C$ at time $t_\nu$ (there are at most 4 observations at each time stamp, and if there are fewer, the corresponding $y_{j,t_\nu}$ are NA), and $\varepsilon_{j,t_\nu}$ is a normal random variable.
+
+The dynamics of the unobserved random walk are specified in the transition equation as
+
+$$
+\mu_{t_\nu+\Delta t_\nu} = \mu_{t_\nu} + (\Delta t_\nu)^{\frac{1}{2}}\eta_{t_\nu},
+$$
+where $\Delta t_\nu = t_{\nu+1}-t_\nu$ and $\eta_{t_\nu}$ is a normal random variable.
+
+
+```{r, Model 1, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+if (Model==1){
+  
+  # Delta-O-18
+  mObs<-mData[,6:9] 
+  mOnes<-matrix(1,4,1)
+  mR18<-array(0,c(1,1,cT))
+  vDeltaTau<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,6])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR18[1,1,]<-sqrt(vDeltaTau)
+  mR18[1,1,cT]<-0
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR18,Q=NA,a1=0,P1=0,P1inf=1),H=matrix(NA,4,4))
+  
+  # objective function of the state space model
+  objf <- function(pars,model,estimate=TRUE){
+    model$Q[, ,1]<-exp(pars[1])
+    model$H[, ,1]<-diag(exp(pars[2]),4)
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_locallevel_par.rda"
+  load(url(github_url)) # load parameter start vector 
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) 
+  vPi<-mdl.opt$par
+
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  # Generate equidistantly spaced data in time
+  timeax<-seq(from=-67,to=0,by=(Delta/1e6))
+  cT_gen<-length(timeax)
+  mData_equi<-matrix(NA,cT_gen,29)
+  mData_equi[,4]<-timeax
+  mData_merged<-rbind(mData,mData_equi)
+  indices_in_timestamps_order<-order(mData_merged[,4])
+  mData_gen<-mData_merged[indices_in_timestamps_order,]
+  indices_equi<-matrix(NA,cT_gen,1)
+  for (i in 1:cT_gen){
+    indices_equi[i]<-which(indices_in_timestamps_order==(cT+i))
+  }
+  Dtau_SSM_gen<-c(diff(mData_gen[,4]),NA)
+  vDeltaTau_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,6])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen18<-array(0,c(1,1,cT+cT_gen))
+  mR_gen18[1,1,]<-sqrt(vDeltaTau_gen)
+  mR_gen18[1,1,cT+cT_gen]<-0
+  mdl_gen<-SSModel(mData_gen[,6:9] ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR_gen18,Q=NA,a1=0,P1=0,P1inf=1),H=matrix(NA,4,4))
+  mdl.fit_gen<-objf(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d18O<-mdl.kfs_gen$alphahat[indices_equi]
+  
+  #------------------------------------------------------------------------------------
+
+  # Delta-C-13
+  mObs<-mData[,10:13] 
+  mR13<-array(0,c(1,1,cT))
+  vDeltaTau<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,10])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR13[1,1,]<-sqrt(vDeltaTau)
+  mR13[1,1,cT]<-0
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR13,Q=NA,a1=0,P1=0,P1inf=1),H=matrix(NA,4,4))
+  
+  # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_locallevel_par.rda"
+  load(url(github_url)) # load parameter start vector 
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) 
+  vPi<-mdl.opt$par
+
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  # Generate equidistantly spaced data in time
+  vDeltaTau_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,10])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen13<-array(0,c(1,1,cT+cT_gen))
+  mR_gen13[1,1,]<-sqrt(vDeltaTau_gen)
+  mR_gen13[1,1,cT+cT_gen]<-0
+  mdl_gen<-SSModel(mData_gen[,10:13] ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR_gen13,Q=NA,a1=0,P1=0,P1inf=1),H=matrix(NA,4,4))
+  mdl.fit_gen<-objf(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d13C<-mdl.kfs_gen$alphahat[indices_equi]
+  output_matrix<-cbind(round(timeax,digits=6),output_series_d18O,output_series_d13C)
+  write.table(output_matrix,file="output.txt",sep="\t",row.names=FALSE)
+  }
+```
+
+
+## Model 2: Random walk plus noise with study-specific variances
+
+Model 2 differentiates the variances of the error terms in the measurement equation according to the study of origin, of which there are 34:
+
+$$
+y_{i_j,t_\nu} = \mu_{t_\nu} + \varepsilon_{i_j,t_\nu},
+$$
+where $i_j=1,\ldots,34$, $j=1,\ldots,4$, is an index that denotes the origin of the $j$-th observation at time $t_\nu$ from study $i$.  The error term $\varepsilon_{i_j,t_\nu}$ is a normal random variable with variance $\sigma_i^2$, $i=1,\ldots, 34$. The dynamics of the unobserved random walk are as in Model 1.
+
+
+```{r, Model 2, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+if (Model==2){
+  
+  # Delta-O-18
+  
+  mObs<-mData[,6:9] # Delta 18O
+  mOnes<-matrix(1,4,1)
+  mR18<-array(0,c(1,1,cT))
+  vDeltaTau<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,6])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR18[1,1,]<-sqrt(vDeltaTau)
+  mR18[1,1,cT]<-0
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR18,Q=NA,a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT)))
+
+  mH<-array(0,c(4,4,cT))
+  # objective function of the state space model
+  objf <- function(pars,model,estimate=TRUE){
+    model$Q[, ,1]<-exp(pars[35])
+    for (i in 1:cT){
+      idx<-which(!is.na(mData[i,14:17]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData[i,13+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+   # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_locallevel_studyvariances_par.rda"
+  load(url(github_url)) # load parameter start vector 
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE)
+  vPi<-mdl.opt$par
+  
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+
+  # Generate equidistantly spaced data in time
+  timeax<-seq(from=-67,to=0,by=(Delta/1e6))
+  cT_gen<-length(timeax)
+  mData_equi<-matrix(NA,cT_gen,29)
+  mData_equi[,4]<-timeax
+  mData_merged<-rbind(mData,mData_equi)
+  indices_in_timestamps_order<-order(mData_merged[,4])
+  mData_gen<-mData_merged[indices_in_timestamps_order,]
+  indices_equi<-matrix(NA,cT_gen,1)
+  for (i in 1:cT_gen){
+    indices_equi[i]<-which(indices_in_timestamps_order==(cT+i))
+  }
+  Dtau_SSM_gen<-c(diff(mData_gen[,4]),NA)
+  vDeltaTau_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,6])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen18<-array(0,c(1,1,cT+cT_gen))
+  mR_gen18[1,1,]<-sqrt(vDeltaTau_gen)
+  mR_gen18[1,1,cT+cT_gen]<-0
+  mH<-array(0,c(4,4,cT+cT_gen))
+  
+  objf_gen <- function(pars,model,estimate=TRUE){
+    model$Q[, ,1]<-exp(pars[35])
+    for (i in 1:(cT+cT_gen)){
+      idx<-which(!is.na(mData_gen[i,14:17]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData_gen[i,13+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+
+  mdl_gen<-SSModel(mData_gen[,6:9] ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR_gen18,Q=NA,a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT+cT_gen)))
+  mdl.fit_gen<-objf_gen(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d18O<-mdl.kfs_gen$alphahat[indices_equi]
+  
+  #------------------------------------------------------------------------------------
+
+  # Delta-C-13
+  
+  mObs<-mData[,10:13] 
+  mR13<-array(0,c(1,1,cT))
+  vDeltaTau<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,10])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR13[1,1,]<-sqrt(vDeltaTau)
+  mR13[1,1,cT]<-0
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR13,Q=NA,a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT)))
+  
+  mH<-array(0,c(4,4,cT))
+  # objective function of the state space model
+  objf <- function(pars,model,estimate=TRUE){
+    model$Q[, ,1]<-exp(pars[35])
+    for (i in 1:cT){
+      idx<-which(!is.na(mData[i,18:21]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData[i,17+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_locallevel_studyvariances_par.rda"
+  load(url(github_url)) # load parameter start vector 
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE)
+  vPi<-mdl.opt$par
+  
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+
+  # Generate equidistantly spaced data in time
+  vDeltaTau_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,10])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen13<-array(0,c(1,1,cT+cT_gen))
+  mR_gen13[1,1,]<-sqrt(vDeltaTau_gen)
+  mR_gen13[1,1,cT+cT_gen]<-0
+  mH<-array(0,c(4,4,cT+cT_gen))
+  
+  objf_gen <- function(pars,model,estimate=TRUE){
+    model$Q[, ,1]<-exp(pars[35])
+    for (i in 1:(cT+cT_gen)){
+      idx<-which(!is.na(mData_gen[i,18:21]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData_gen[i,17+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  mdl_gen<-SSModel(mData_gen[,10:13] ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR_gen13,Q=NA,a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT+cT_gen)))
+  mdl.fit_gen<-objf_gen(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d13C<-mdl.kfs_gen$alphahat[indices_equi]
+  output_matrix<-cbind(round(timeax,digits=6),round(output_series_d18O,digits=10),round(output_series_d13C,digits=10))
+  write.table(output_matrix,file="output.txt",sep="\t",row.names=FALSE)
+  
+}
+```
+
+## Model 3: Adding climate-state specific variances in the transition equation
+
+Model 3 adds a differentiated variance structure in the transition equation to Model 2. The motivation is the identification of six distinct climate states in the time series record that is reported in [Westerhold et al. (2020)](https://www.science.org/doi/full/10.1126/science.aba6853?). These states are "Warmhouse 2" (67-56 MYA), "Hothouse" (56-47 MYA), "Warmhouse 1" (47-34 MYA), "Coolhouse 1" (34-13.9 MYA), "Coolhouse 2" (13.9-3.3 MYA), "Icehouse" (3.3.0 MYA). The differentiation of these states is captured by changing variances of the white noise driver of the unobserved random walk $\mu$. The measurement equation, with its differentiation of the studies of origin, remains the same as in Model 2. The transition equation becomes
+$$
+\mu_{t_\nu+\Delta t_\nu} = \mu_{t_\nu} + (\Delta t_\nu)^\frac{1}{2}\eta_{j,t_\nu},\; \eta_{j,t_\nu}\sim\mathsf{N}(0,\sigma_{\eta,j}^2 ),
+$$
+where $j=1,\ldots,6$ indicates the six different climate states according to whether $t_\nu$ falls into the time intervals mentioned above. 
+
+```{r, Model 3, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+if (Model==3){
+  
+  # Delta-O-18
+  
+  mObs<-mData[,6:9]
+  mOnes<-matrix(1,4,1)
+  mR<-array(0,c(1,1,cT))
+  vDeltaTau<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,6])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR[1,1,]<-sqrt(vDeltaTau)
+  mR[1,1,cT]<-0
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR,Q=array(NA,c(1,1,cT)),a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT)))
+  
+  mH<-array(0,c(4,4,cT))
+  mQ<-array(0,c(1,1,cT))
+  
+  # objective function of the state space model
+  objf <- function(pars,model,estimate=TRUE){
+    for (i in 1:cT){
+      if (mData[i,4]< (-56)){                                           # 2690
+        mQ[1,1,i]<-exp(pars[35])
+      } else if ((mData[i,4] >= (-56)) && (mData[i,4] < (-47))) {       # 5693
+        mQ[1,1,i]<-exp(pars[36])
+      } else if ((mData[i,4] >= (-47)) && (mData[i,4] < (-34))) {       # 7471
+        mQ[1,1,i]<-exp(pars[37])
+      } else if ((mData[i,4] >= (-34)) && (mData[i,4] < (-13.9))) {     # 13933
+        mQ[1,1,i]<-exp(pars[38])
+      } else if ((mData[i,4] >= (-13.9)) && (mData[i,4] < (-3.3))) {    # 20179
+        mQ[1,1,i]<-exp(pars[39])
+      } else if (mData[i,4] >= (-3.3)) {
+        mQ[1,1,i]<-exp(pars[40])
+      }
+    }
+    model$Q<-mQ
+    for (i in 1:cT){
+      idx<-which(!is.na(mData[i,14:17]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData[i,13+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_locallevel_studies_periods_par.rda"
+  load(url(github_url)) # load parameter start vector 
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) 
+  vPi<-mdl.opt$par
+
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  # Generate equidistantly spaced data in time
+  timeax<-seq(from=-67,to=0,by=(Delta/1e6))
+  cT_gen<-length(timeax)
+  mData_equi<-matrix(NA,cT_gen,29)
+  mData_equi[,4]<-timeax
+  mData_merged<-rbind(mData,mData_equi)
+  indices_in_timestamps_order<-order(mData_merged[,4])
+  mData_gen<-mData_merged[indices_in_timestamps_order,]
+  indices_equi<-matrix(NA,cT_gen,1)
+  for (i in 1:cT_gen){
+    indices_equi[i]<-which(indices_in_timestamps_order==(cT+i))
+  }
+  Dtau_SSM_gen<-c(diff(mData_gen[,4]),NA)
+  vDeltaTau_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,6])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen<-array(0,c(1,1,cT+cT_gen))
+  mR_gen[1,1,]<-sqrt(vDeltaTau_gen)
+  mR_gen[1,1,cT+cT_gen]<-0
+  mH<-array(0,c(4,4,cT+cT_gen))
+  mQ<-array(0,c(1,1,cT+cT_gen))
+  
+  objf_gen <- function(pars,model,estimate=TRUE){
+    for (i in 1:(cT+cT_gen)){
+      if (mData_gen[i,4]< (-56)){                                             
+        mQ[1,1,i]<-exp(pars[35])
+      } else if ((mData_gen[i,4] >= (-56)) && (mData_gen[i,4] < (-47))) {       
+        mQ[1,1,i]<-exp(pars[36])
+      } else if ((mData_gen[i,4] >= (-47)) && (mData_gen[i,4] < (-34))) {       
+        mQ[1,1,i]<-exp(pars[37])
+      } else if ((mData_gen[i,4] >= (-34)) && (mData_gen[i,4] < (-13.9))) {     
+        mQ[1,1,i]<-exp(pars[38])
+      } else if ((mData_gen[i,4] >= (-13.9)) && (mData_gen[i,4] < (-3.3))) {  
+        mQ[1,1,i]<-exp(pars[39])
+      } else if (mData_gen[i,4] >= (-3.3)) {
+        mQ[1,1,i]<-exp(pars[40])
+      }
+    }
+    model$Q<-mQ
+    for (i in 1:(cT+cT_gen)){
+      idx<-which(!is.na(mData_gen[i,14:17]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData_gen[i,13+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  mdl_gen<-SSModel(mData_gen[,6:9] ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR_gen,Q=array(NA,c(1,1,cT+cT_gen)),a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT+cT_gen)))
+  mdl.fit_gen<-objf_gen(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d18O<-mdl.kfs_gen$alphahat[indices_equi]
+  
+  #------------------------------------------------------------------------------------
+
+  # Delta-C-13
+  
+  mObs<-mData[,10:13] 
+  mR<-array(0,c(1,1,cT))
+  vDeltaTau<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,10])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR[1,1,]<-sqrt(vDeltaTau)
+  mR[1,1,cT]<-0
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR,Q=array(NA,c(1,1,cT)),a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT)))
+  
+  mH<-array(0,c(4,4,cT))
+  mQ<-array(0,c(1,1,cT))
+  
+  # objective function of the state space model
+  objf <- function(pars,model,estimate=TRUE){
+    model$Q[, ,1]<-exp(pars[35])
+    for (i in 1:cT){
+      if (mData[i,4]< (-56)){
+        mQ[1,1,i]<-exp(pars[35])
+      } else if ((mData[i,4] >= (-56)) && (mData[i,4] < (-47))) {
+        mQ[1,1,i]<-exp(pars[36])
+      } else if ((mData[i,4] >= (-47)) && (mData[i,4] < (-34))) {
+        mQ[1,1,i]<-exp(pars[37])
+      } else if ((mData[i,4] >= (-34)) && (mData[i,4] < (-13.9))) {
+        mQ[1,1,i]<-exp(pars[38])
+      } else if ((mData[i,4] >= (-13.9)) && (mData[i,4] < (-3.3))) {
+        mQ[1,1,i]<-exp(pars[39])
+      } else if (mData[i,4] >= (-3.3)) {
+        mQ[1,1,i]<-exp(pars[40])
+      }
+    }
+    model$Q<-mQ
+    for (i in 1:cT){
+      idx<-which(!is.na(mData[i,18:21]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData[i,17+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_locallevel_studies_periods_par.rda"
+  load(url(github_url)) # load parameter start vector
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) 
+  vPi<-mdl.opt$par
+  
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  # Generate equidistantly spaced data in time
+  vDeltaTau_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,10])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen<-array(0,c(1,1,cT+cT_gen))
+  mR_gen[1,1,]<-sqrt(vDeltaTau_gen)
+  mR_gen[1,1,cT+cT_gen]<-0
+  mH<-array(0,c(4,4,cT+cT_gen))
+  mQ<-array(0,c(1,1,cT+cT_gen))
+  
+  objf_gen <- function(pars,model,estimate=TRUE){
+    for (i in 1:(cT+cT_gen)){
+      if (mData_gen[i,4]< (-56)){                                               
+        mQ[1,1,i]<-exp(pars[35])
+      } else if ((mData_gen[i,4] >= (-56)) && (mData_gen[i,4] < (-47))) {       
+        mQ[1,1,i]<-exp(pars[36])
+      } else if ((mData_gen[i,4] >= (-47)) && (mData_gen[i,4] < (-34))) {       
+        mQ[1,1,i]<-exp(pars[37])
+      } else if ((mData_gen[i,4] >= (-34)) && (mData_gen[i,4] < (-13.9))) {     
+        mQ[1,1,i]<-exp(pars[38])
+      } else if ((mData_gen[i,4] >= (-13.9)) && (mData_gen[i,4] < (-3.3))) {    
+        mQ[1,1,i]<-exp(pars[39])
+      } else if (mData_gen[i,4] >= (-3.3)) {
+        mQ[1,1,i]<-exp(pars[40])
+      }
+    }
+    model$Q<-mQ
+    for (i in 1:(cT+cT_gen)){
+      idx<-which(!is.na(mData_gen[i,18:21]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData_gen[i,17+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  mdl_gen<-SSModel(mData_gen[,10:13] ~ -1 + SSMcustom(Z=mOnes,T=1,R=mR_gen,Q=array(NA,c(1,1,cT+cT_gen)),a1=0,P1=0,P1inf=1),H=array(NA,c(4,4,cT+cT_gen)))
+  mdl.fit_gen<-objf_gen(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d13C<-mdl.kfs_gen$alphahat[indices_equi]
+  output_matrix<-cbind(round(timeax,digits=6),round(output_series_d18O,digits=10),round(output_series_d13C,digits=10))
+  write.table(output_matrix,file="output.txt",sep="\t",row.names=FALSE)
+
+}
+```
+
+## Model 4: Bivariate model for $\delta^{18}$O and $\delta^{13}$C with study-specific measurement and climate-state specific transition variances
+
+The measurement equation of Model 4 is
+$$
+\begin{align*}
+y_{i_j,t_\nu}^{\delta^{18}O} &= \mu_{t_\nu}^{\delta^{18}O} + \varepsilon_{i_j,t_\nu}^{\delta^{18}O},\\
+y_{i_j,t_\nu}^{\delta^{13}C} &= \mu_{t_\nu}^{\delta^{13}C} + \varepsilon_{i_j,t_\nu}^{\delta^{13}C},\\
+\end{align*}
+$$
+where $i_j=1,\ldots,34$, $j=1,\ldots,4$, is an index that denotes the origin of the $j$-th observation at time $t_\nu$ from study $i$.  The error term $\varepsilon_{i_j,t_\nu}^{(\delta^{18}O,\delta^{13}C)}$ is a normal random variable with variance $\sigma_{i,(\delta^{18}O,\delta^{13}C)}^2$, $i=1,\ldots, 34$. 
+
+The transition equation for the unobserved component $\mu$ is given as follows.
+$$
+\begin{align*}
+\mu_{t_\nu+\Delta t_\nu}^{\delta^{18}O} &= \mu_{t_\nu}^{\delta^{18}O} + \eta_{j,t_\nu}^{\delta^{18}O} \\
+\mu_{t_\nu + \Delta t_\nu}^{\delta^{13}C} &= \mu_{t_\nu}^{\delta^{13}C} + \eta_{j,t_\nu}^{\delta^{13}C}
+\end{align*}
+$$
+The error terms of the unobserved components in $\delta^{18}$O and the one in $\delta^{13}$C correlate with coefficient $\rho_j$: 
+$$
+E[(\eta_{j,t_\nu}^{\delta^{18}O}\eta_{j,t_\nu}^{\delta^{13}C})'(\eta_{j,t_\nu}^{\delta^{18}O}\eta_{j,t_\nu}^{\delta^{13}C})] = Q_{t_\nu} = \left[\begin{array}{cc}
+\sigma_{\eta,\delta^{18}O,j}^2 \Delta t_\nu^{\delta^{18}O} & \rho_j \sigma_{\eta,\delta^{18}O,j}\sigma_{\eta,\delta^{13}C,j} \min\{\Delta t_\nu^{\delta^{18}O}, \Delta t_\nu^{\delta^{13}C}\} \\
+\rho_j\sigma_{\eta,\delta^{18}O,j}\sigma_{\eta,\delta^{13}C,j} \min\{\Delta t_\nu^{\delta^{18}O}, \Delta t_\nu^{\delta^{13}C}\} & \sigma_{\eta,\delta^{13}C,j}^2 \Delta t_\nu^{\delta^{13}C}
+\end{array}\right],
+$$
+where the $j=1,\ldots,6$ indicate the climate state, and
+$$
+\Delta t_\nu^{(\delta^{18}O,\delta^{13}C)} = \left\{\begin{array}{l}
+\Delta t_\nu,  \qquad\qquad\quad \text{if preceding obs at $t_{\nu-1}$ is not NA},\\
+\Delta t_\nu + \Delta t_{\nu-1}^{(\delta^{18}O,\delta^{13}C)}, \text{if preceding obs at $t_{\nu-1}$ is NA}.
+\end{array}\right.
+$$
+
+
+```{r, Model 4, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+if (Model==4){
+  mObs<-mData[,6:13] # Delta 18O (6:9) Delta 13C (10:13)
+  mZ<-matrix(0,8,2)
+  mZ[1:4,1]<-1
+  mZ[5:8,2]<-1
+  
+  mDeltaTau<-array(0,c(2,2,cT))
+  vDeltaTau1<-matrix(0,cT,1)
+  vDeltaTau2<-matrix(0,cT,1)
+  DeltaTau1<-0
+  DeltaTau2<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,6])){ # d18O
+      DeltaTau1<-DeltaTau1+mData[i,5]
+    } else {
+      DeltaTau1<-DeltaTau1+mData[i,5]
+      vDeltaTau1[i]<-DeltaTau1
+      DeltaTau1<-0
+    }
+    if (is.na(mData[i,10])){ # d13C
+      DeltaTau2<-DeltaTau2+mData[i,5]
+    } else {
+      DeltaTau2<-DeltaTau2+mData[i,5]
+      vDeltaTau2[i]<-DeltaTau2
+      DeltaTau2<-0
+    }
+  }
+  mDeltaTau[1,1,]<-vDeltaTau1
+  mDeltaTau[2,2,]<-vDeltaTau2
+  for (i in 1:cT){
+    mDeltaTau[1,2,i]<-mDeltaTau[2,1,i]<-min(vDeltaTau1[i],vDeltaTau2[i])
+  }
+  mDeltaTau[, ,cT]<-matrix(0,2,2)
+  
+  mdl<-SSModel(as.matrix(mObs) ~ -1 + SSMcustom(Z=mZ,T=diag(2),Q=array(NA,c(2,2,cT)),a1=matrix(0,2,1),P1=matrix(0,2,2),P1inf=diag(2)),H=array(NA,c(8,8,cT)))
+  
+  # objective function of the state space model
+  objf <- function(pars,model,estimate=TRUE){
+    mQ<-array(0,c(2,2,cT))
+    mQpars<-cbind(exp(pars[69:74]),exp(pars[75:80]),(1-exp(-pars[81:86]))/(1+exp(-pars[81:86])))
+    mQ[1,1,1:2690]<-mQpars[1,1]*mDeltaTau[1,1,1:2690]
+    mQ[2,2,1:2690]<-mQpars[1,2]*mDeltaTau[2,2,1:2690]
+    mQ[1,2,1:2690]<-mQ[2,1,1:2690]<-mQpars[1,3]*sqrt(mQpars[1,1])*sqrt(mQpars[1,2])*mDeltaTau[1,2,1:2690]
+    mQ[1,1,2691:5693]<-mQpars[2,1]*mDeltaTau[1,1,2691:5693]
+    mQ[2,2,2691:5693]<-mQpars[2,2]*mDeltaTau[2,2,2691:5693]
+    mQ[1,2,2691:5693]<-mQ[2,1,2691:5693]<-mQpars[2,3]*sqrt(mQpars[2,1])*sqrt(mQpars[2,2])*mDeltaTau[1,2,2691:5693]
+    mQ[1,1,5694:7471]<-mQpars[3,1]*mDeltaTau[1,1,5694:7471]
+    mQ[2,2,5694:7471]<-mQpars[3,2]*mDeltaTau[2,2,5694:7471]
+    mQ[1,2,5694:7471]<-mQ[2,1,5694:7471]<-mQpars[3,3]*sqrt(mQpars[3,1])*sqrt(mQpars[3,2])*mDeltaTau[1,2,5694:7471]
+    mQ[1,1,7472:13933]<-mQpars[4,1]*mDeltaTau[1,1,7472:13933]
+    mQ[2,2,7472:13933]<-mQpars[4,2]*mDeltaTau[2,2,7472:13933]
+    mQ[1,2,7472:13933]<-mQ[2,1,7472:13933]<-mQpars[4,3]*sqrt(mQpars[4,1])*sqrt(mQpars[4,2])*mDeltaTau[1,2,7472:13933]
+    mQ[1,1,13934:20179]<-mQpars[5,1]*mDeltaTau[1,1,13934:20179]
+    mQ[2,2,13934:20179]<-mQpars[5,2]*mDeltaTau[2,2,13934:20179]
+    mQ[1,2,13934:20179]<-mQ[2,1,13934:20179]<-mQpars[5,3]*sqrt(mQpars[5,1])*sqrt(mQpars[5,2])*mDeltaTau[1,2,13934:20179]
+    mQ[1,1,20180:23722]<-mQpars[6,1]*mDeltaTau[1,1,20180:23722]
+    mQ[2,2,20180:23722]<-mQpars[6,2]*mDeltaTau[2,2,20180:23722]
+    mQ[1,2,20180:23722]<-mQ[2,1,20180:23722]<-mQpars[6,3]*sqrt(mQpars[6,1])*sqrt(mQpars[6,2])*mDeltaTau[1,2,20180:23722]
+    model$Q<-mQ
+    mH=array(0,c(8,8,cT))
+    mHpars<-cbind(exp(pars[1:34]),exp(pars[35:68]))
+    for (i in 1:cT){
+      idx1<-which(!is.na(mData[i,14:17]))
+      mmH1<-matrix(0,4,4)
+      vDiag1<-matrix(0,4,1)
+      vDiag1[idx1]<-mHpars[mData[i,13+idx1],1]
+      mmH1[row(mmH1)==col(mmH1)]<-vDiag1
+      mH[1:4,1:4,i]<-mmH1
+      idx2<-which(!is.na(mData[i,18:21]))
+      mmH2<-matrix(0,4,4)
+      vDiag2<-matrix(0,4,1)
+      vDiag2[idx2]<-mHpars[mData[i,17+idx2],2]
+      mmH2[row(mmH2)==col(mmH2)]<-vDiag2
+      mH[5:8,5:8,i]<-mmH2
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  
+  # estimation
+  github_url<-"https://github.com/chisos9/data_public/raw/master/Bivariate_locallevel_studies_periods_par.rda"
+  load(url(github_url)) # load parameter start vector
+  mdl.opt<-optim(vPi,fn=objf,model=mdl,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) 
+  vPi<-mdl.opt$par
+
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit<-objf(vPi, mdl, estimate = FALSE)
+  mdl.kfs<-KFS(mdl.fit,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  # Generate equidistantly time-stamped data
+  timeax<-seq(from=-67,to=0,by=(Delta/1e6))
+  cT_gen<-length(timeax)
+  mData_equi<-matrix(NA,cT_gen,29)
+  mData_equi[,4]<-timeax
+  mData_merged<-rbind(mData,mData_equi)
+  indices_in_timestamps_order<-order(mData_merged[,4])
+  mData_gen<-mData_merged[indices_in_timestamps_order,]
+  indices_equi<-matrix(NA,cT_gen,1)
+  for (i in 1:cT_gen){
+    indices_equi[i]<-which(indices_in_timestamps_order==(cT+i))
+  }
+  Dtau_SSM_gen<-c(diff(mData_gen[,4]),NA)
+  mDeltaTau_gen<-array(0,c(2,2,cT+cT_gen))
+  vDeltaTau1_gen<-matrix(0,cT+cT_gen,1)
+  vDeltaTau2_gen<-matrix(0,cT+cT_gen,1)
+  DeltaTau1<-0
+  DeltaTau2<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,6])){ # d18O
+      DeltaTau1<-DeltaTau1+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau1<-DeltaTau1+Dtau_SSM_gen[i]
+      vDeltaTau1_gen[i]<-DeltaTau1
+      DeltaTau1<-0
+    }
+    if (is.na(mData_gen[i,10])){ # d13C
+      DeltaTau2<-DeltaTau2+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau2<-DeltaTau2+Dtau_SSM_gen[i]
+      vDeltaTau2_gen[i]<-DeltaTau2
+      DeltaTau2<-0
+    }
+  }
+  mDeltaTau_gen[1,1,]<-vDeltaTau1_gen
+  mDeltaTau_gen[2,2,]<-vDeltaTau2_gen
+  for (i in 1:(cT+cT_gen)){
+    mDeltaTau_gen[1,2,i]<-mDeltaTau_gen[2,1,i]<-min(vDeltaTau1_gen[i],vDeltaTau2_gen[i])
+  }
+  mDeltaTau_gen[, ,cT+cT_gen]<-matrix(0,2,2)
+  mQ<-array(0,c(2,2,cT+cT_gen))
+  mH=array(0,c(8,8,cT+cT_gen))
+  # objective function of the state space model
+  objf_gen <- function(pars,model,estimate=TRUE){
+    mQpars<-cbind(exp(pars[69:74]),exp(pars[75:80]),(1-exp(-pars[81:86]))/(1+exp(-pars[81:86])))
+    for (i in 1:(cT+cT_gen)){
+      if (mData_gen[i,4]< (-56)){                                             
+        mQ[1,1,i]<-mQpars[1,1]*mDeltaTau_gen[1,1,i]
+        mQ[2,2,i]<-mQpars[1,2]*mDeltaTau_gen[2,2,i]
+        mQ[1,2,i]<-mQ[2,1,i]<-mQpars[1,3]*sqrt(mQpars[1,1])*sqrt(mQpars[1,2])*mDeltaTau_gen[1,2,i]
+      } else if ((mData_gen[i,4] >= (-56)) && (mData_gen[i,4] < (-47))) {     
+        mQ[1,1,i]<-mQpars[2,1]*mDeltaTau_gen[1,1,i]
+        mQ[2,2,i]<-mQpars[2,2]*mDeltaTau_gen[2,2,i]
+        mQ[1,2,i]<-mQ[2,1,i]<-mQpars[2,3]*sqrt(mQpars[2,1])*sqrt(mQpars[2,2])*mDeltaTau_gen[1,2,i]
+      } else if ((mData_gen[i,4] >= (-47)) && (mData_gen[i,4] < (-34))) {     
+        mQ[1,1,i]<-mQpars[3,1]*mDeltaTau_gen[1,1,i]
+        mQ[2,2,i]<-mQpars[3,2]*mDeltaTau_gen[2,2,i]
+        mQ[1,2,i]<-mQ[2,1,i]<-mQpars[3,3]*sqrt(mQpars[3,1])*sqrt(mQpars[3,2])*mDeltaTau_gen[1,2,i]
+      } else if ((mData_gen[i,4] >= (-34)) && (mData_gen[i,4] < (-13.9))) {   
+        mQ[1,1,i]<-mQpars[4,1]*mDeltaTau_gen[1,1,i]
+        mQ[2,2,i]<-mQpars[4,2]*mDeltaTau_gen[2,2,i]
+        mQ[1,2,i]<-mQ[2,1,i]<-mQpars[4,3]*sqrt(mQpars[4,1])*sqrt(mQpars[4,2])*mDeltaTau_gen[1,2,i]
+      } else if ((mData_gen[i,4] >= (-13.9)) && (mData_gen[i,4] < (-3.3))) {
+        mQ[1,1,i]<-mQpars[5,1]*mDeltaTau_gen[1,1,i]
+        mQ[2,2,i]<-mQpars[5,2]*mDeltaTau_gen[2,2,i]
+        mQ[1,2,i]<-mQ[2,1,i]<-mQpars[5,3]*sqrt(mQpars[5,1])*sqrt(mQpars[5,2])*mDeltaTau_gen[1,2,i]
+      } else if (mData_gen[i,4] >= (-3.3)) {
+        mQ[1,1,i]<-mQpars[6,1]*mDeltaTau_gen[1,1,i]
+        mQ[2,2,i]<-mQpars[6,2]*mDeltaTau_gen[2,2,i]
+        mQ[1,2,i]<-mQ[2,1,i]<-mQpars[6,3]*sqrt(mQpars[6,1])*sqrt(mQpars[6,2])*mDeltaTau_gen[1,2,i]
+      }
+    }
+    model$Q<-mQ
+    mHpars<-cbind(exp(pars[1:34]),exp(pars[35:68]))
+    for (i in 1:(cT+cT_gen)){
+      idx1<-which(!is.na(mData_gen[i,14:17]))
+      mmH1<-matrix(0,4,4)
+      vDiag1<-matrix(0,4,1)
+      vDiag1[idx1]<-mHpars[mData_gen[i,13+idx1],1]
+      mmH1[row(mmH1)==col(mmH1)]<-vDiag1
+      mH[1:4,1:4,i]<-mmH1
+      idx2<-which(!is.na(mData_gen[i,18:21]))
+      mmH2<-matrix(0,4,4)
+      vDiag2<-matrix(0,4,1)
+      vDiag2[idx2]<-mHpars[mData_gen[i,17+idx2],2]
+      mmH2[row(mmH2)==col(mmH2)]<-vDiag2
+      mH[5:8,5:8,i]<-mmH2
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  mdl_gen<-SSModel(mData_gen[,6:13] ~ -1 + SSMcustom(Z=mZ,T=diag(2),Q=array(NA,c(2,2,cT+cT_gen)),a1=matrix(0,2,1),P1=matrix(0,2,2),P1inf=diag(2)),H=array(NA,c(8,8,cT+cT_gen)))
+  mdl.fit_gen<-objf_gen(vPi, mdl_gen, estimate = FALSE)
+  mdl.kfs_gen<-KFS(mdl.fit_gen,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series<-mdl.kfs_gen$alphahat[indices_equi,]
+  output_series_d18O<-round(output_series[,1],digits=10)
+  output_series_d13C<-round(output_series[,2],digits=10)
+  output_matrix<-cbind(round(timeax,digits=6),output_series_d18O,output_series_d13C)
+  write.table(output_matrix,file="output.txt",sep="\t",row.names=FALSE)
+}
+```
+
+
+## Model 5: Integrated random walk plus noise for integration orders 2 to 6.
+
+In this model, the unobserved component is modeled as an integrated random walk of order $m$. The transition equation of this class of models is specified as follows.
+
+$$
+\left[\begin{array}{c}
+\mu_{t_\nu+\Delta t_\nu} \\ \mu_{t_\nu+\Delta t_\nu}^{(m-1)} \\ \vdots \\ \mu_{t_\nu+\Delta t_\nu}^{(2)} \\ \mu_{t_\nu+\Delta t_\nu}^{(1)}
+\end{array}\right]
+=
+\left[\begin{array}{ccccccc}
+1 & 1 & 0 & 0 & \cdots & 0 & 0 \\ 
+0 & 1 & 1 & 0 & \cdots & 0 & 0 \\ 
+\vdots & \vdots & \vdots & \vdots & \ddots & \vdots & \vdots \\
+0 & 0 & 0 & 0 & \cdots & 1 & 1 \\
+0 & 0 & 0 & 0 & \cdots & 0 & 1
+\end{array}\right]
+\left[\begin{array}{c}
+\mu_{t_\nu} \\ \mu_{t_\nu}^{(m-1)} \\ \vdots \\ \mu_{t_\nu}^{(2)} \\ \mu_{t_\nu}^{(1)}
+\end{array}\right]
++
+\left[\begin{array}{c}
+0 \\ 0 \\ \vdots \\ 0 \\ \eta_{j,t_\nu}
+\end{array}\right],\; \eta_{j,t_\nu}\stackrel{i.i.d.}{\sim} \mathsf{N}(0, \sigma_{\eta,j,m}^2 \Delta t_\nu).
+$$
+where $j=1,\ldots,6$ denotes climate states. Here, $\mu^{(1)}$ is a random walk with white noise driver $\eta$ that gets cumulated $m$ times without adding additional sources of noise in the $m-1$ cumulations. As a result, $\mu$ is an $m$-fold integrated random walk. This is an $I(m)$ process, meaning that $m$-fold differencing yields a stationary process. In the paper, we discuss how the order of integration relates to the order of a Butterworth filter. The parameter $m$ set above is only used in this model, and it can currently be set to a natural number between 2 and 6. Note that $m=1$ is Model 3. The measurement equation is defined as in Model 2 and distinguishes study variances.
+
+
+```{r, Model 5, include=FALSE, echo=FALSE, message=FALSE, warning=FALSE}
+if (Model==5){
+  mObs_d18O<-mData[,6:9] # Delta 18O
+  mObs_d13C<-mData[,10:13] # Delta 13C
+  mZ<-matrix(1,4,m)
+  mT<-diag(m)
+  mT[(row(mT)==col(mT)) | (col(mT)==row(mT)+1)]<-1
+  vDeltaTau_d18O<-matrix(0,cT,1)
+  vDeltaTau_d13C<-matrix(0,cT,1)
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,6])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau_d18O[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  DeltaTau<-0
+  for (i in 1:cT){
+    if (is.na(mData[i,10])){
+      DeltaTau<-DeltaTau+mData[i,5]
+    } else {
+      DeltaTau<-DeltaTau+mData[i,5]
+      vDeltaTau_d13C[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_d18O<-array(0,c(m,m,cT))
+  mR_d13C<-array(0,c(m,m,cT))
+  mR_d18O[m,m,]<-sqrt(vDeltaTau_d18O)
+  mR_d13C[m,m,]<-sqrt(vDeltaTau_d13C)
+  mR_d18O[, ,cT]<-0
+  mR_d13C[, ,cT]<-0
+  mdl_d18O<-SSModel(as.matrix(mObs_d18O) ~ -1 + SSMcustom(Z=mZ,T=mT,R=mR_d18O,Q=array(NA,c(m,m,cT)),a1=matrix(0,m,1),P1=diag(0,m),P1inf=diag(m)),H=array(NA,c(4,4,cT)))
+  mdl_d13C<-SSModel(as.matrix(mObs_d13C) ~ -1 + SSMcustom(Z=mZ,T=mT,R=mR_d13C,Q=array(NA,c(m,m,cT)),a1=matrix(0,m,1),P1=diag(0,m),P1inf=diag(m)),H=array(NA,c(4,4,cT)))
+  
+  # objective function of the state space model
+  objf_d18O <- function(pars,model,estimate=TRUE){
+    mQ<-array(0,c(m,m,cT))
+    mQ[m,m,1:2690]<-exp(pars[35])
+    mQ[m,m,2691:5693]<-exp(pars[36])
+    mQ[m,m,5694:7471]<-exp(pars[37])
+    mQ[m,m,7472:13933]<-exp(pars[38])
+    mQ[m,m,13934:20179]<-exp(pars[39])
+    mQ[m,m,20180:23722]<-exp(pars[40])
+    model$Q<-mQ
+    mH=array(0,c(4,4,cT))
+    for (i in 1:cT){
+      idx<-which(!is.na(mData[i,14:17]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData[i,13+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  objf_d13C <- function(pars,model,estimate=TRUE){
+    mQ<-array(0,c(m,m,cT))
+    mQ[m,m,1:2690]<-exp(pars[35])
+    mQ[m,m,2691:5693]<-exp(pars[36])
+    mQ[m,m,5694:7471]<-exp(pars[37])
+    mQ[m,m,7472:13933]<-exp(pars[38])
+    mQ[m,m,13934:20179]<-exp(pars[39])
+    mQ[m,m,20180:23722]<-exp(pars[40])
+    model$Q<-mQ
+    mH=array(0,c(4,4,cT))
+    for (i in 1:cT){
+      idx<-which(!is.na(mData[i,18:21]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData[i,17+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  # estimation
+  if (m==2){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_localtrend_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==3){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_localtrend_m3_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==4){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_localtrend_m4_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==5){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_localtrend_m5_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==6){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta18O_localtrend_m6_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  }
+  mdl.opt_d18O<-optim(vPi,fn=objf_d18O,model=mdl_d18O,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) # use your favorite numerical optimizer here
+  vPi_d18O<-mdl.opt_d18O$par
+  
+  # evaluate Kalman filter and smoother in the optimum
+  mdl.fit_d18O<-objf_d18O(vPi_d18O, mdl_d18O, estimate = FALSE)
+  mdl.kfs_d18O<-KFS(mdl.fit_d18O,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  if (m==2){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_localtrend_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==3){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_localtrend_m3_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==4){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_localtrend_m4_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==5){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_localtrend_m5_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  } else if (m==6){
+    github_url<-"https://github.com/chisos9/data_public/raw/master/Delta13C_localtrend_m6_studies_periods_par.rda"
+    load(url(github_url)) # load parameter start vector
+  }
+  mdl.opt_d13C<-optim(vPi,fn=objf_d13C,model=mdl_d13C,method="BFGS",control=list(trace=4,maxit=10000),hessian=FALSE) # use your favorite numerical optimizer here
+  vPi_d13C<-mdl.opt_d13C$par
+  
+  mdl.fit_d13C<-objf_d13C(vPi_d13C, mdl_d13C, estimate = FALSE)
+  mdl.kfs_d13C<-KFS(mdl.fit_d13C,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  
+  timeax<-seq(from=-67,to=0,by=(Delta/1e6))
+  cT_gen<-length(timeax)
+  mData_equi<-matrix(NA,cT_gen,29)
+  mData_equi[,4]<-timeax
+  mData_merged<-rbind(mData,mData_equi)
+  indices_in_timestamps_order<-order(mData_merged[,4])
+  mData_gen<-mData_merged[indices_in_timestamps_order,]
+  indices_equi<-matrix(NA,cT_gen,1)
+  for (i in 1:cT_gen){
+    indices_equi[i]<-which(indices_in_timestamps_order==(cT+i))
+  }
+  Dtau_SSM_gen<-c(diff(mData_gen[,4]),NA)
+  vDeltaTau_gen_d18O<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,6])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen_d18O[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  vDeltaTau_gen_d13C<-matrix(0,cT+cT_gen,1)
+  DeltaTau<-0
+  for (i in 1:(cT+cT_gen)){
+    if (is.na(mData_gen[i,10])){
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+    } else {
+      DeltaTau<-DeltaTau+Dtau_SSM_gen[i]
+      vDeltaTau_gen_d13C[i]<-DeltaTau
+      DeltaTau<-0
+    }
+  }
+  mR_gen_d18O<-array(0,c(m,m,cT+cT_gen))
+  mR_gen_d13C<-array(0,c(m,m,cT+cT_gen))
+  mR_gen_d18O[m,m,]<-sqrt(vDeltaTau_gen_d18O)
+  mR_gen_d13C[m,m,]<-sqrt(vDeltaTau_gen_d13C)
+  mR_gen_d18O[ , ,cT+cT_gen]<-0
+  mR_gen_d13C[ , ,cT+cT_gen]<-0
+  # objective function of the state space model
+  objf_gen_d18O <- function(pars,model,estimate=TRUE){
+    mQ<-array(0,c(m,m,cT+cT_gen))
+    for (i in 1:(cT+cT_gen)){
+      if (mData_gen[i,4]< (-56)){                                             
+        mQ[m,m,i]<-exp(pars[35])
+      } else if ((mData_gen[i,4] >= (-56)) && (mData_gen[i,4] < (-47))) {     
+        mQ[m,m,i]<-exp(pars[36])
+      } else if ((mData_gen[i,4] >= (-47)) && (mData_gen[i,4] < (-34))) {     
+        mQ[m,m,i]<-exp(pars[37])
+      } else if ((mData_gen[i,4] >= (-34)) && (mData_gen[i,4] < (-13.9))) {   
+        mQ[m,m,i]<-exp(pars[38])
+      } else if ((mData_gen[i,4] >= (-13.9)) && (mData_gen[i,4] < (-3.3))) {
+        mQ[m,m,i]<-exp(pars[39])
+      } else if (mData_gen[i,4] >= (-3.3)) {
+        mQ[m,m,i]<-exp(pars[40])
+      }
+    }
+    model$Q<-mQ
+    mH<-array(0,c(4,4,cT+cT_gen))
+    for (i in 1:(cT+cT_gen)){
+      idx<-which(!is.na(mData_gen[i,14:17]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData_gen[i,13+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  objf_gen_d13C <- function(pars,model,estimate=TRUE){
+    mQ<-array(0,c(m,m,cT+cT_gen))
+    for (i in 1:(cT+cT_gen)){
+      if (mData_gen[i,4]< (-56)){                                             
+        mQ[m,m,i]<-exp(pars[35])
+      } else if ((mData_gen[i,4] >= (-56)) && (mData_gen[i,4] < (-47))) {     
+        mQ[m,m,i]<-exp(pars[36])
+      } else if ((mData_gen[i,4] >= (-47)) && (mData_gen[i,4] < (-34))) {     
+        mQ[m,m,i]<-exp(pars[37])
+      } else if ((mData_gen[i,4] >= (-34)) && (mData_gen[i,4] < (-13.9))) {   
+        mQ[m,m,i]<-exp(pars[38])
+      } else if ((mData_gen[i,4] >= (-13.9)) && (mData_gen[i,4] < (-3.3))) {
+        mQ[m,m,i]<-exp(pars[39])
+      } else if (mData_gen[i,4] >= (-3.3)) {
+        mQ[m,m,i]<-exp(pars[40])
+      }
+    }
+    model$Q<-mQ
+    mH<-array(0,c(4,4,cT+cT_gen))
+    for (i in 1:(cT+cT_gen)){
+      idx<-which(!is.na(mData_gen[i,18:21]))
+      mmH<-matrix(0,4,4)
+      vDiag<-matrix(0,4,1)
+      vDiag[idx]<-exp(pars[mData_gen[i,17+idx]])
+      mmH[row(mmH)==col(mmH)]<-vDiag
+      mH[, ,i]<-mmH
+    }
+    model$H<-mH
+    if (estimate){
+      -logLik(model)
+    } else {
+      model
+    }
+  }
+  mdl_gen_d18O<-SSModel(mData_gen[,6:9] ~ -1 + SSMcustom(Z=mZ,T=mT,R=mR_gen_d18O,Q=array(NA,c(m,m,cT+cT_gen)),a1=matrix(0,m,1),P1=diag(0,m),P1inf=diag(m)),H=array(NA,c(4,4,cT+cT_gen)))
+  mdl_gen_d13C<-SSModel(mData_gen[,10:13] ~ -1 + SSMcustom(Z=mZ,T=mT,R=mR_gen_d13C,Q=array(NA,c(m,m,cT+cT_gen)),a1=matrix(0,m,1),P1=diag(0,m),P1inf=diag(m)),H=array(NA,c(4,4,cT+cT_gen)))
+  mdl.fit_gen_d18O<-objf_gen_d18O(vPi_d18O, mdl_gen_d18O, estimate = FALSE)
+  mdl.fit_gen_d13C<-objf_gen_d13C(vPi_d13C, mdl_gen_d13C, estimate = FALSE)
+  mdl.kfs_gen_d18O<-KFS(mdl.fit_gen_d18O,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  mdl.kfs_gen_d13C<-KFS(mdl.fit_gen_d13C,filtering=c('state','signal','disturbance'),smoothing=c('state','signal','disturbance'),simplify=FALSE)
+  output_series_d18O<-round(mdl.kfs_gen_d18O$alphahat[indices_equi],digits=10)
+  output_series_d13C<-round(mdl.kfs_gen_d13C$alphahat[indices_equi],digits=10)
+  output_matrix<-cbind(round(timeax,digits=6),output_series_d18O,output_series_d13C)
+  write.table(output_matrix,file="output.txt",sep="\t",row.names=FALSE)
+}
+```
+
+## Regularly time-stamped smoothed values
+
+The plot shows equidistantly time-stamped smoothed values from the Kalman smoothing recursions for the chosen model and the chosen time increment $\Delta$ for $\delta^{18}$O (left panel) and $\delta^{13}$C (right panel).
+
+```{r, Final plots, echo=FALSE, message=FALSE, warning=FALSE, fig.width=10}
+# time series plot
+par(mfrow = c(1, 2))
+
+plot(mData[,4],mData[,6],type='l',lwd=.2,col='gray',ylim=rev(range(mData[,6],na.rm=TRUE)),ylab='Delta-O-18',xlab='Million years before present')
+lines(timeax,output_series_d18O,ylim=rev(range(output_series_d18O,na.rm=TRUE)),lwd=1,col='black')
+legend("topright",c("data","regular smoothed values"),col=c("gray","black"),lty=c(1,1),lwd=c(2,2),bty='n')
+  
+plot(mData[,4],mData[,10],type='l',lwd=.2,col='gray',ylim=range(mData[,10],na.rm=TRUE),ylab='Delta-C-13',xlab='Million years before present')
+lines(timeax,output_series_d13C,ylim=range(output_series_d13C,na.rm=TRUE),lwd=1,col='black')
+legend("topright",c("data","regular smoothed values"),col=c("gray","black"),lty=c(1,1),lwd=c(2,2),bty='n')
+
+
+```
+
+Regularly time-stamped imputed smoothed values from Model 4 for different $\Delta$'s can be downloaded at the links below.
+
+* [$\Delta=1000$ Years](https://raw.githubusercontent.com/chisos9/data_public/master/output_model4_delta1000.txt) 
+* [$\Delta=5000$ Years](https://raw.githubusercontent.com/chisos9/data_public/master/output_model4_delta5000.txt) 
+* [$\Delta=10000$ Years](https://raw.githubusercontent.com/chisos9/data_public/master/output_model4_delta10000.txt) 
+* [$\Delta=50000$ Years](https://raw.githubusercontent.com/chisos9/data_public/master/output_model4_delta50000.txt) 
+* [$\Delta=100000$ Years](https://raw.githubusercontent.com/chisos9/data_public/master/output_model4_delta100000.txt) 
+* Download this R-Markdown script (Available after publication of paper)
+
+
+
